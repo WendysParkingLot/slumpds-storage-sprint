@@ -1,0 +1,3571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- "no", not "yes", and it is a TRADE. "yes" makes the home-screen copy
+     STANDALONE: no address bar, no tab button, no way back to Safari at all -
+     that is what standalone means, not a bug to be worked around - and about
+     110px more game. "no" opens it as an ordinary Safari tab from the same
+     icon, with the URL and tabs where they always are, and the game gets the
+     screen Safari leaves it. One word switches it back. -->
+<meta name="apple-mobile-web-app-capable" content="no">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<!-- SAVED TO THE HOME SCREEN. apple-touch-icon is the picture that ends up on
+     it - 180x180, tools/make_icon.py, the runner cropped out of the title card
+     because the card's lettering is illegible at that size - and
+     apple-mobile-web-app-title is the name under it, short enough not to be
+     cut with an ellipsis. Safari rounds the corners itself. With
+     apple-mobile-web-app-capable above, opening it from there runs the game
+     with no address bar and no toolbar, which is ~100px of phone back. -->
+<meta name="apple-mobile-web-app-title" content="Storage Sprint">
+<link rel="apple-touch-icon" href="art/icon.png">
+<link rel="icon" type="image/png" href="art/icon.png">
+<meta name="theme-color" content="#3a3f45">
+
+<!-- The preview card a link to the game gets in Messages. Its name comes from
+     og:title, not <title> (Apple, TN3156). Its picture is art/preview.png, the
+     title card framed at 1200x630 by tools/make_preview.py. og:url and og:image
+     are ABSOLUTE and https, which is what every scraper wants; they point at
+     the GitHub Pages address, so they move if the repo is ever renamed. -->
+<meta property="og:title" content="Slumpd's Storage Sprint">
+<meta property="og:description" content="Clear the unit. Load the truck. Don't get caught.">
+<meta property="og:type" content="website">
+<meta property="og:url"          content="https://wendysparkinglot.github.io/slumpds-storage-sprint/">
+<meta property="og:image"        content="https://wendysparkinglot.github.io/slumpds-storage-sprint/art/preview.png">
+<meta property="og:image:width"  content="1200">
+<meta property="og:image:height" content="630">
+
+<title>Slumpd's Storage Sprint</title>
+<style>
+  html, body {
+    margin:0; padding:0; width:100%; height:100%;
+    background:#23272b; overflow:hidden;
+    overscroll-behavior:none; touch-action:none;
+    -webkit-user-select:none; user-select:none;
+    -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent;
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;
+    color:#e8e2d6;
+  }
+  body { position:fixed; inset:0; }
+
+  /* Centred in what is left between the HUD strip and the thumb buttons, not
+     pinned under the HUD: the view is shorter than the screen on a phone -
+     deliberately, so that the roof is not half of it - and top-aligned left the
+     game stranded at the top over a screen of empty dark. The top and bottom
+     paddings are the same 64 and 224 resize() holds back, and both carry the
+     safe-area inset - the HUD sits below the notch, so the stage has to as
+     well or the status line is drawn over the top of the game. */
+  /* THE TOP STRIP NEEDS A FLOOR, not just the inset. env(safe-area-inset-top)
+     is the NOTCH: ~59px on a tall iPhone, and ZERO wherever the browser has
+     already moved the page below its own furniture. 'inset + a bit' is right
+     in the first case and puts the strip hard against the top edge in the
+     second, which is how it stayed looking too high after being moved down
+     once. So every top offset is max(floor, inset + gap): 96/84 for the stage,
+     56/44 for the HUD, 52/40 for the mute button - whose 31px then end at 83,
+     inside the stage's 96. resize() computes the same max for padTop, and the
+     two HAVE to agree or the canvas is centred in a box it is not drawn in.
+     Landscape keeps the tight numbers: 393px of height for the whole game. */
+  #stage { position:fixed; inset:0; display:flex; align-items:center;
+           justify-content:center;
+           padding-top:max(96px, calc(env(safe-area-inset-top,0px) + 84px)); }
+  @media (orientation: landscape) {
+    #stage { padding-top:calc(env(safe-area-inset-top,0px) + 28px); }
+  }
+  @media (orientation: portrait) {
+    body.touch #stage { padding-bottom:calc(env(safe-area-inset-bottom,0px) + 224px); }
+  }
+
+  canvas {
+    display:block;
+    image-rendering:pixelated; image-rendering:crisp-edges;
+    box-shadow:0 0 0 3px #17171b, 0 20px 44px rgba(0,0,0,.6);
+  }
+
+  #hud {
+    position:fixed; top:calc(env(safe-area-inset-top,0px) + 24px);
+    left:0; right:0; text-align:center;
+    font-size:13px; letter-spacing:.05em; color:#e8e2d6;
+    pointer-events:none; text-shadow:0 2px 0 rgba(0,0,0,.7);
+  }
+  #hud b { color:#e0913c; font-weight:600; }
+  #hud i { color:#d94f3d; font-style:normal; }
+  /* A PORTRAIT PHONE CANNOT CENTRE THIS AND KEEP THE MUTE BUTTON OFF IT.
+     Measured at 393px: the widest status line is 242px at 13px, the button is
+     103px reading SOUND ON and 137 reading TAP FOR SOUND, and the two
+     overlapped by 35. Centring is what has to give - there is no font size
+     that keeps a 242px line inside the 172px a centred box has left. So the
+     status goes LEFT and the button keeps the right, which reads as a layout
+     rather than as a collision, at 12px, where the widest line is 223 against
+     the 241 left over. */
+  @media (orientation: portrait) {
+    #hud { top:max(56px, calc(env(safe-area-inset-top,0px) + 44px));
+           text-align:left; font-size:12px;
+           padding-left:calc(env(safe-area-inset-left,0px) + 12px);
+           padding-right:calc(env(safe-area-inset-right,0px) + 140px); }
+  }
+
+  /* env(safe-area-inset-*) is a CSS value and script cannot read one. This is
+     padded by two of them so resize() can measure them off it. */
+  #safe { position:fixed; top:0; left:0; width:0; height:0; visibility:hidden;
+          padding-top:env(safe-area-inset-top,0px);
+          padding-bottom:env(safe-area-inset-bottom,0px); }
+
+  #pad { display:none; }
+  #pad.on { display:block; }
+  /* NOT UNDER A SHEET. The pad is fixed and draws over the score sheet, so on
+     a finished run RUN IT BACK sat on top of the d-pad - two live touch
+     targets in the same place, and the pad is the one that swallows the tap.
+     Hidden, its rects measure zero and hitTest() returns null for everything,
+     which is the same answer twice: nothing on the pad can be pressed while a
+     sheet is up. refreshPadRects() has to run when this changes. */
+  body.sheeted #pad.on { display:none; }
+
+  /* JUMP, alone on the right. .btn is only this one button now - DOWN used to
+     sit above it and is an arm of the d-pad instead. */
+  .btn {
+    position:fixed; bottom:calc(env(safe-area-inset-bottom,0px) + 22px);
+    width:76px; height:76px; border-radius:16px;
+    background:rgba(224,145,60,.10); border:2px solid rgba(224,145,60,.40);
+    display:flex; align-items:center; justify-content:center;
+    color:#e0913c; font-size:26px; line-height:1;
+  }
+  .btn.held { background:rgba(224,145,60,.30); }
+  #bJump  { right:calc(env(safe-area-inset-right,0px) + 18px); width:96px; font-size:15px; letter-spacing:.08em; }
+
+  /* THE D-PAD: four arms round a hub, bottom left, on a 66px grid. UP is
+     jump, the same as ArrowUp on a keyboard. It is ONE element as far as the
+     touch test is concerned - see hitTest() - which is what lets a corner
+     hold two directions at once. */
+  #dpad {
+    position:fixed; left:calc(env(safe-area-inset-left,0px) + 16px);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 20px);
+    width:198px; height:198px;
+  }
+  /* Sideways there are 393px of height for the whole game, so the cross gives
+     some back. hitTest() reads getBoundingClientRect(), which carries the
+     transform, so nothing else needs to know it shrank. */
+  @media (orientation: landscape) { #dpad { transform:scale(.72); transform-origin:bottom left; } }
+  .arm, #dHub {
+    position:absolute; width:66px; height:66px; box-sizing:border-box;
+    background:rgba(224,145,60,.10); border:2px solid rgba(224,145,60,.40);
+    display:flex; align-items:center; justify-content:center;
+    color:#e0913c; font-size:22px; line-height:1;
+  }
+  .arm.held { background:rgba(224,145,60,.30); }
+  /* Every arm drops the border facing the hub and the hub has none at all, so
+     the five boxes outline one plus instead of five squares. */
+  #bUp    { left:66px;  top:0;     border-radius:14px 14px 0 0; border-bottom:0; }
+  #bLeft  { left:0;     top:66px;  border-radius:14px 0 0 14px; border-right:0; }
+  #bRight { left:132px; top:66px;  border-radius:0 14px 14px 0; border-left:0; }
+  #bDown  { left:66px;  top:132px; border-radius:0 0 14px 14px; border-top:0; }
+  #dHub   { left:66px;  top:66px;  border:0; }
+
+  .sheet {
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:10px;
+    background:rgba(26,29,32,.90); text-align:center; padding:20px;
+  }
+  .sheet.gone { display:none; }
+  .sheet h1 { margin:0; font-size:36px; font-weight:600; letter-spacing:.16em; color:#e0913c; }
+  .sheet p  { margin:0; font-size:13px; color:#9aa0a6; max-width:280px; line-height:1.6; }
+
+  /* The title card, art/title.jpg, shown WHOLE - contain, never cover. Its
+     lettering runs within 40px of both sides of an 832px-wide picture, and cover
+     on a 375x812 phone crops 128 source px off each side, "Storage Sprint"
+     with them. What contain leaves empty is the same picture again, blurred and
+     darkened, so the card sits in its own light rather than in a letterbox.
+     Until the picture has loaded - or if it never does - the splash is the
+     text title it always was; #splash.art is set only once it is there. */
+  /* The splash holds back the same strip everything else does. The card is a
+     CENTRED COLUMN, so it climbs as the screen gets shorter, and the mute button
+     is over it before it runs out of room: at 375x548 the card's top was 30 and
+     the button 52..83, straight through SLUMPD'S. That is the same failure the
+     104px reserve below was added to fix, reopened by moving the button down -
+     the reserve sizes the COLUMN and does nothing about what is over it, so the
+     allowance belongs on the container. box-sizing so max-height:100% below
+     still means the content box. */
+  #splash { background:#17171b; overflow:hidden; isolation:isolate;
+            box-sizing:border-box;
+            padding-top:max(96px, calc(env(safe-area-inset-top,0px) + 84px)); }
+  @media (orientation: landscape) {
+    #splash { padding-top:max(60px, calc(env(safe-area-inset-top,0px) + 56px)); }
+  }
+  #splash::before {
+    content:''; position:absolute; inset:-40px; z-index:-1;
+    background:url('art/title.jpg') center / cover no-repeat;
+    filter:blur(18px) brightness(.4);
+  }
+  /* The height held back is everything under the card: the prompt, and the
+     tagline while it shows. Holding back only the prompt's 64px overran the
+     column by 39px wherever the card is limited by height with the tagline on
+     - a 375x548 SE in Safari - and centring split that into the top padding,
+     which put the card's title under the mute button. */
+  #titleArt { display:none; max-width:100%; max-height:calc(100% - 104px); object-fit:contain;
+              border-radius:4px; box-shadow:0 12px 40px rgba(0,0,0,.7); }
+  #splash.art #titleArt { display:block; }
+  #splash.art h1 { display:none; }
+  /* A landscape phone has 375px of height for all of it: the card, then only
+     the prompt. */
+  @media (max-height:520px) {
+    #splash.art .tagline { display:none; }
+    #titleArt { max-height:calc(100% - 64px); }
+  }
+
+  /* UNDER THE NOTCH otherwise. The page runs edge to edge - viewport-fit=cover
+     with a black-translucent status bar - so a flat 6px from the top is 6px
+     INTO the status bar on any phone with an inset, and the button came back
+     from one reported as cut off. #hud allowed for the inset from the start;
+     this never did. */
+  #mute {
+    position:fixed; top:calc(env(safe-area-inset-top,0px) + 20px);
+    right:calc(env(safe-area-inset-right,0px) + 8px); z-index:120;
+    font:600 11px/1 ui-monospace,Menlo,Consolas,monospace; letter-spacing:.08em;
+    color:#878d93; background:rgba(23,23,27,.82); border:1px solid #3a3f45;
+    border-radius:4px; padding:9px 11px; cursor:pointer; user-select:none;
+    -webkit-tap-highlight-color:transparent; touch-action:manipulation;
+  }
+  /* AFTER #mute, not inside the portrait block up with #hud: same
+     specificity, and the later rule wins. Written up there it measured as
+     having no effect at all - the button stayed on the row it was already
+     on while the HUD moved down without it. */
+  @media (orientation: portrait) {
+    #mute { top:max(52px, calc(env(safe-area-inset-top,0px) + 40px)); }
+  }
+  #mute:active { color:#e0913c; }
+
+  /* Creeps down from the top on pickup, showing the full-size card from
+     art/cards_menu.png - same 500%/25% sprite-sheet trick as the score sheet. */
+  /* THE CARD BANNER LANDS BELOW THE TOP STRIP, not on top of it. At top:0 it
+     was drawn under the clock and the battery in a standalone home-screen app
+     - the page runs edge to edge (viewport-fit=cover), so top:0 is the top of
+     the SCREEN, not the top of anything the player owns - and it covered the
+     status line and the mute button on the way past. Same max(floor, inset +
+     gap) the stage's padding-top uses, so it arrives exactly where the game
+     does.
+     And it fades in over a SHORT slide rather than sliding its whole height:
+     translateY(-115%) starts it a full banner above wherever it is anchored,
+     which is back over the status bar again for the half second it travels. */
+  #cardBanner {
+    position:fixed; left:0; right:0; z-index:100;
+    top:max(96px, calc(env(safe-area-inset-top,0px) + 84px));
+    display:flex; align-items:center; gap:14px; padding:10px 16px;
+    background:linear-gradient(180deg,rgba(23,23,27,.97),rgba(23,23,27,.80));
+    border-bottom:2px solid #e0913c; pointer-events:none;
+    transform:translateY(-16px); opacity:0;
+    transition:transform .5s cubic-bezier(.2,.9,.3,1), opacity .3s;
+  }
+  /* Landscape has 393px of height for everything, so the banner keeps the
+     tight offset the stage keeps there. */
+  @media (orientation: landscape) {
+    #cardBanner { top:calc(env(safe-area-inset-top,0px) + 28px); }
+  }
+  #cardBanner.in { transform:translateY(0); opacity:1; }
+  /* The torch card's own moment. The whole game - clock included - holds still
+     underneath for TC.pause seconds. art/torch-splash.png is the D.T.C. card at
+     full size; without it the fallback shows the same card's cell out of
+     cards_menu.png, which is the last one on the sheet. */
+  #torchSplash {
+    position:fixed; inset:0; z-index:150; pointer-events:none;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+    background:radial-gradient(ellipse at center, rgba(52,18,6,.62), rgba(8,8,10,.86));
+    opacity:0; transition:opacity .16s;
+  }
+  #torchSplash.in { opacity:1; }
+  #torchSplash > * { transform:scale(.55); transition:transform .38s cubic-bezier(.2,1.6,.4,1); }
+  #torchSplash.in > * { transform:scale(1); }
+  #tsImg { display:none; max-width:88vw; max-height:78vh; object-fit:contain; image-rendering:pixelated; }
+  #torchSplash.custom #tsImg { display:block; }
+  #torchSplash.custom #tsCard, #torchSplash.custom #tsText { display:none; }
+  /* Every element that shows one cell of art/cards_menu.png gets its
+     background-size and -position from paintCard() in JS, never from here:
+     both depend on how many cards are on the sheet, and when it grew from five
+     to six this rule kept its 500% and quietly showed each card with a sliver
+     of both neighbours. */
+  #tsCard {
+    width:min(50vw, 250px); aspect-ratio:49/73; border-radius:6px;
+    background-image:url('art/cards_menu.png');
+    background-repeat:no-repeat; image-rendering:pixelated;
+    box-shadow:0 0 44px rgba(242,162,60,.6);
+  }
+  #tsText {
+    font:900 26px/1 ui-monospace, Menlo, monospace; letter-spacing:.14em; color:#f2c744;
+    text-shadow:0 2px 0 #7a2019, 0 0 18px rgba(242,162,60,.85);
+  }
+  #cbArt {
+    width:78px; height:116px; flex:none; border-radius:3px;
+    background-image:url('art/cards_menu.png');
+    background-repeat:no-repeat; image-rendering:pixelated;
+  }
+  #cbText { display:flex; flex-direction:column; gap:4px;
+            font-family:ui-monospace,Menlo,Consolas,monospace; }
+  #cbKicker { font-size:10px; letter-spacing:.16em; color:#878d93; }
+  #cbName   { font-size:21px; letter-spacing:.05em; color:#e8e2d6; }
+  #cbGot    { font-size:10px; letter-spacing:.16em; color:#e0913c; }
+
+  /* The run so far, under the name: one cell per card, dim for the ones still
+     out there, lit for the ones you have, ringed for the one that just landed.
+     The same sheet the score sheet uses, at a third the size, so the banner
+     answers "what did I just get" and "what have I got" in one look. It sits
+     inside #cbText because the column is shorter than #cbArt is tall - the
+     strip costs no banner height at all. */
+  #cbRun { display:flex; gap:3px; margin-top:3px; }
+  .cbMini {
+    width:32px; aspect-ratio:49/73; border-radius:2px;
+    background-image:url('art/cards_menu.png');
+    background-repeat:no-repeat; image-rendering:pixelated;
+    filter:brightness(.22) grayscale(1); opacity:.6;
+    transition:filter .45s ease, opacity .45s ease, transform .45s cubic-bezier(.2,1.4,.4,1);
+  }
+  .cbMini.got { filter:none; opacity:1; }
+  .cbMini.new { transform:translateY(-3px);
+                box-shadow:0 0 0 2px #e0913c, 0 0 14px rgba(224,145,60,.75); }
+
+  @media (max-width:560px) {
+    #cbArt { width:56px; height:83px; }
+    #cbName { font-size:16px; }
+    .cbMini { width:24px; }
+  }
+
+  /* The six collectible cards, revealed as the cards row tallies. Each slot
+     shows one 196x292 cell of art/cards_menu.png, cropped by paintCard(). The
+     last one is the torch card. */
+  /* width:100%, not shrink-to-fit: the slots size themselves off this row, so
+     leaving its width to depend on them in turn resolves to nothing and the
+     shelf collapses. */
+  #cardShelf {
+    display:flex; flex-wrap:wrap; gap:6px;
+    justify-content:center; margin:10px 0 4px; width:100%; max-width:100%;
+  }
+  /* Six across, always one row. #score's own 20px padding leaves 335px on a
+     375pt phone and 6x62 + five 6px gaps wanted 402, so this asks for 84 and
+     takes whatever a sixth of the row actually is - which also stops a 320pt
+     phone wrapping the set into 3 + 3. */
+  .cardSlot {
+    width:min(84px, calc((100% - 30px) / 6)); aspect-ratio:49/73;
+    background-image:url('art/cards_menu.png');
+    background-repeat:no-repeat;
+    image-rendering:pixelated;
+    border-radius:3px;
+    filter:brightness(.16) grayscale(1);    /* not collected */
+    opacity:.5; transform:translateY(6px) scale(.94);
+    transition:filter .45s ease, opacity .45s ease, transform .45s cubic-bezier(.2,1.4,.4,1);
+  }
+  .cardSlot.got { filter:none; opacity:1; transform:none; }
+  #splash h1, #splash p { text-shadow:0 3px 0 rgba(0,0,0,.9); }
+  /* The text title, for when art/title.jpg is missing. 8vw keeps "STORAGE
+     SPRINT", the longer line, inside a 375px phone's 335px column. */
+  #splash h1 { font-size:min(36px, 8vw); line-height:1.15; }
+
+  /* .45, not .62: the boxes now load into the truck in the wall art behind
+     this, and at .62 the bay was too dark to read them going in. */
+  #score { background:rgba(26,29,32,.45); justify-content:flex-end; padding-bottom:14vh; gap:6px; }
+  #score .row {
+    display:flex; justify-content:space-between; width:250px;
+    font-size:14px; color:#e8e2d6; opacity:0; transition:opacity .25s;
+  }
+  #score .row.in { opacity:1; }
+  #score .row span:last-child { color:#e0913c; }
+  #score .total { border-top:2px solid #4a5056; padding-top:8px; margin-top:6px; font-size:18px; }
+  #grade { font-size:64px; font-weight:700; letter-spacing:.06em; color:#e0913c; margin:4px 0 0; opacity:0; transition:opacity .4s; }
+  #grade.in { opacity:1; }
+  /* A run that ended under Grimace does not get a score. Nothing was
+     delivered, so there is nothing to count: the sheet is GAME OVER and the
+     button, and the rows and the card shelf are not drawn at all. */
+  #grade.over { font-size:44px; color:#b8362a; letter-spacing:.12em; }
+  #score.over .row, #score.over #cardShelf { display:none; }
+  #score.over { justify-content:center; padding-bottom:20px; }
+  /* The clip that plays over GAME OVER, if art/loser.mp4 (or .webm) is there.
+     See-through, behind the text, and it never takes a tap. */
+  /* Hidden by OPACITY, never display:none: a phone will not start a video it
+     is not laying out, and this one is started by the game rather than by a
+     tap. */
+  #loserClip {
+    position:absolute; inset:0; width:100%; height:100%; object-fit:contain;
+    opacity:0; filter:brightness(.85); pointer-events:none; transition:opacity .2s;
+  }
+  #score.over.clip #loserClip { opacity:.3; }
+  /* The words have to win over whatever is playing behind them: at .45 with no
+     shadow the clip's bright middle swallowed both of them. */
+  #score.over #grade { text-shadow:0 2px 10px rgba(0,0,0,.95), 0 0 3px rgba(0,0,0,.9); }
+  #score.over #again { background:rgba(18,20,23,.78); text-shadow:0 1px 4px rgba(0,0,0,.9); }
+  #again {
+    margin-top:14px; padding:12px 26px; border-radius:12px;
+    border:2px solid #e0913c; color:#e0913c; background:transparent;
+    font:inherit; font-size:14px; letter-spacing:.08em; opacity:0; transition:opacity .3s;
+  }
+  #again.in { opacity:1; }
+</style>
+</head>
+<body>
+
+<div id="stage"><canvas id="game"></canvas></div>
+<div id="hud"></div>
+<div id="mute">🔈 TAP FOR SOUND</div>
+
+<div id="cardBanner">
+  <div id="cbArt"></div>
+  <div id="cbText">
+    <span id="cbKicker"></span>
+    <b id="cbName"></b>
+    <span id="cbGot">CARD COLLECTED</span>
+    <div id="cbRun">
+      <div class="cbMini" id="cbMini0"></div><div class="cbMini" id="cbMini1"></div>
+      <div class="cbMini" id="cbMini2"></div><div class="cbMini" id="cbMini3"></div>
+      <div class="cbMini" id="cbMini4"></div><div class="cbMini" id="cbMini5"></div>
+    </div>
+  </div>
+</div>
+
+<div id="torchSplash">
+  <img id="tsImg" alt="">
+  <div id="tsCard"></div>
+  <b id="tsText">TORCH CARD!</b>
+</div>
+
+<div id="safe"></div>
+
+<div id="pad">
+  <div id="dpad">
+    <div class="arm" id="bUp">&#9650;</div>
+    <div class="arm" id="bLeft">&#9664;</div>
+    <div id="dHub"></div>
+    <div class="arm" id="bRight">&#9654;</div>
+    <div class="arm" id="bDown">&#9660;</div>
+  </div>
+  <div class="btn" id="bJump">JUMP</div>
+</div>
+
+<div class="sheet" id="splash">
+  <img id="titleArt" src="art/title.jpg" alt="Slumpd's Storage Sprint" draggable="false">
+  <h1>SLUMPD'S<br>STORAGE SPRINT</h1>
+  <p class="tagline">Clear the unit. Grab every box and card. Something in the back is awake.</p>
+  <p style="color:#e0913c">tap to start</p>
+</div>
+
+<div class="sheet gone" id="score">
+  <video id="loserClip" playsinline muted preload="auto"></video>
+  <div class="row" id="rBox"><span>boxes</span><span></span></div>
+  <div class="row" id="rCard"><span>cards</span><span></span></div>
+  <div id="cardShelf">
+    <div class="cardSlot" id="cardSlot0"></div><div class="cardSlot" id="cardSlot1"></div>
+    <div class="cardSlot" id="cardSlot2"></div><div class="cardSlot" id="cardSlot3"></div>
+    <div class="cardSlot" id="cardSlot4"></div><div class="cardSlot" id="cardSlot5"></div>
+  </div>
+  <div class="row" id="rTime"><span>time bonus</span><span></span></div>
+  <div class="row" id="rClean"><span>no-hit bonus</span><span></span></div>
+  <div class="row total" id="rTotal"><span>TOTAL</span><span></span></div>
+  <div id="grade">—</div>
+  <button id="again">RUN IT BACK</button>
+</div>
+
+<script>
+'use strict';
+
+/* ==========================================================================
+   1. TUNING — the whole feel of the game lives in these numbers
+   ========================================================================== */
+const TILE   = 24;
+// WORLD UNITS ACROSS: this fixes the zoom, and so the character's on-screen
+// size - he is 57 * (screenWidth / VIEW_W) * S CSS pixels tall, and VIEW_W is
+// the only term in that a phone can do anything about. So a phone held tall
+// gets a NARROWER one and everything else keeps 384. On a 393x852 phone 320 is
+// 70 CSS pixels of character against 58.
+//
+// WHY 320 AND NOT LESS. The chase runs on the daylight between the player and
+// the spider, which is (VIEW_W/2 - 10) - (SPIDER_EDGE + 64) because the camera
+// centres one and SPIDER_EDGE pins the other. Below about 70 units of it the
+// chase stops working - the note on SPIDER_EDGE has the numbers - and 320 is
+// exactly 70. 288 was tried and it is 54, which needed the spider pinned
+// OUTSIDE the left edge to make up, and a quarter of it off the screen is not
+// worth 8 pixels of character.
+// resize() picks it and rebuilds the two things derived from it: the canvas,
+// and BG_OPEN_X.
+const VIEW_W_WIDE = 384, VIEW_W_PHONE = 320;
+let   VIEW_W = VIEW_W_WIDE;
+let   VIEW_H = 216;                    // recomputed from the real viewport in resize()
+const STEP   = 1 / 60;
+
+// ---- RENDER SCALE -------------------------------------------------------
+// The one dial for art fidelity. The world stays 384x216 units at every
+// setting, so physics, level design, camera and collision are untouched.
+// S only decides how many real pixels each world unit gets — and therefore
+// how much detail a sprite is allowed to carry.
+//   S=1  ->  384 x 216 canvas,  32 x 48 player art   (chunky, cheapest)
+//   S=2  ->  768 x 432 canvas,  64 x 96 player art
+//   S=3  -> 1152 x 648 canvas,  96 x 144 player art  (~1:1 with iPhone pixels)
+// Placeholder art looks identical at every S. Only real PNGs get sharper.
+const S = 3;
+
+// ---- CHARACTER SIZE -----------------------------------------------------
+// How big the protagonist is in world units, relative to the first build.
+// 1.0 = original.  1.5 = roughly 70-75% of the reference image's character.
+// This is NOT free: past ~1.4 the player no longer fits under a thin shelf
+// with only two rows of clearance, which is why the level maps below use
+// solid box stacks for low ground and reserve thin shelves for rows 5 and 3.
+// Change this and re-run audit.js before trusting the level.
+const HERO = 1.5;
+
+const GRAVITY   = 1400;
+const MAX_RUN   = 160;
+const ACCEL     = 1100;
+const AIR_ACCEL = 800;
+const FRICTION  = 1400;
+const JUMP_V    = -480;   // apex ~82px => clears 3 tiles up, ~4.5 tiles across
+const JUMP_CUT  = -140;
+const MAX_FALL  = 620;
+const COYOTE    = 0.12;
+const BUFFER    = 0.14;
+const DROP_T    = 0.15;   // s that shelves are ignored after pressing down on one:
+                          // ~16 units of fall, past a 10-unit shelf. Counted down
+                          // inside moveAndCollide, so no caller can forget to.
+
+const INVULN    = 1.2;
+const PAR_TIME  = 150;    // seconds; finishing under this earns time bonus
+
+// TIME IS A TIEBREAKER, NOT A STRATEGY. At 20 a second against a 150s par it
+// was the biggest single term in the game and it paid for NOT playing: the
+// fastest way through a storage unit is to leave the boxes in it. 6 a second
+// makes a brisk run worth a few hundred and a slow one worth nothing, which
+// is the weight a tiebreaker should have. Cards came down for the same
+// reason - five of the six sit on the route, so they were 3750 points of
+// walking - and the box, the thing the game is actually about, went up.
+// The no-hit bonus came DOWN, which reads backwards until you see what the
+// grade does: a hit already costs a letter, so paying 1500 for it here as
+// well put a clean rushed run above a thorough one that got clipped once -
+// measured, 9510 against 8500. The letter punishes the hit; the score is
+// only the tally, and at 800 it orders the way the letter does.
+const SCORE = { box: 200, card: 400, stomp: 50, perSecond: 6, clean: 800 };
+
+// THE GRADE IS WHAT YOU DID, NOT WHAT YOU SCORED. It used to be a points
+// table - S at 7750 - and sim.js's BOT TOOK S ON 41 OF 41 LAYOUTS with a mean
+// of 9952. That bot runs right, never detours, and collects only what is in
+// its way: 31 of 42 boxes and 5 of 6 cards, in 37.7s. Under the old table
+// that was 3100 + 3750 + 2246 of time + 1000 for being clean, and the best
+// score in the game belonged to the run that did the least.
+// No points total fixes that on its own, because three quarters of the boxes
+// ARE on the route - only the last quarter costs anything, and a linear score
+// cannot tell 74% from 100% by enough. So the letter is a requirement now and
+// the score is just the number beside it. Fractions, not counts, so a change
+// to how many boxes a layout carries does not quietly move the bar.
+const GRADES = [
+  { letter:'S', boxes:1.00, cards:1.00, hits:0  },   // every box, every card, untouched
+  { letter:'A', boxes:0.90, cards:0.83, hits:1  },   // 38 of 42, 5 of 6, one hit
+  { letter:'B', boxes:0.70, cards:0,    hits:99 },   // 30 of 42
+  { letter:'C', boxes:0,    cards:0,    hits:99 }
+];
+
+/* ==========================================================================
+   2. PALETTE — sampled off the reference image
+   ========================================================================== */
+const C = {
+  doorMid:'#c2551f', doorHi:'#e0913c', doorLo:'#8c3a10',
+  // wall must equal WALL in tools/make_bg.py: the door tiles' tops fade to it
+  // and the upper tile blends into it, and it fills the view behind both.
+  floor:'#5f6469',  floorHi:'#6f757a', wall:'#6c747c', wallHi:'#9aa0a6',
+  trim:'#2c5c86',   ceil:'#3a3f45',    deep:'#23272b',
+  card1:'#b58f57',  card2:'#d0ac74',   card3:'#7d6238',
+  wood:'#8a6a3d',   woodHi:'#a88352',  cardDeep:'#3e3119',
+  ink:'#17171b',    skin:'#d2a07c',    cargo:'#6b675c',
+  red:'#b8362a',    hot:'#d94f3d',     lamp:'#eef3f7',
+  spider:'#2b2027', spiderHi:'#5c3f4a',
+  gold:'#e0913c',   paper:'#e8e2d6'
+};
+
+/* ==========================================================================
+   3. LEVEL — 9 rows tall, 24px tiles, four 48-tile acts.
+      Legend:  # boxes/solid   = pallet shelf (one-way)   b box   c card
+               r rat  o roach  P spawn  S spider trigger  T torch card  E exit
+      These strings are the CLASSIC level now: the fallback, and the rulebook the
+      generator in 3b reads its anchors and counts from. Every playthrough is
+      generated unless the URL says ?seed=classic.
+   ========================================================================== */
+const ACT_A = [
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '..................bb............................',
+  '..................===...........................',
+  '................................................',
+  '.........bb.....................................',
+  '.........===..===.........bbb.........c.........',
+  '..........................###...................',
+  '..P...b......b.....###..b.###.....b.....r.......',
+  '################################################'
+];
+const ACT_B = [
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '...bb...................................bb......',
+  '...===............c.......bbb...........====....',
+  '..............b...........####..................',
+  '...b........o###...b......####...b.......o...b..',
+  '#########..###########..############..##########'
+];
+const ACT_C = [
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '..............................cbb...............',
+  '.............................====...............',
+  '................................................',
+  '.........................bb.....................',
+  '........................====....................',
+  '..........bbc.....bbb...........................',
+  '.........====....#####..........................',
+  '.................#####..........................',
+  '..........o...b..#####....b.........o...b...S...',
+  '######..#######################..###############'
+];
+const ACT_D = [
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',
+  '................................................',   // the card and its boxes moved to the floor:
+  '................................................',   // no shelf past the spider trigger any more
+  '......b.............b...........................',
+  '...b..##.......b....##........T..cbb..b.....E...',
+  '##########..############..######################'
+];
+// The hand-built level. It has two jobs now. It is the RULEBOOK the generator
+// reads - which columns hold the spawn, the spider trigger, the torch card and
+// the exit, where the cards go, how many boxes and which enemies each act gets -
+// and it is the FALLBACK, played with ?seed=classic, or whenever the generator
+// cannot produce a layout its own route checker will accept.
+const CLASSIC = [ACT_A, ACT_B, ACT_C, ACT_D];
+
+const ROWS = 14;   // 5 rows of upper warehouse above the 9-row playfield
+const COLS = CLASSIC.length * 48;
+const LEVEL_W = COLS * TILE;
+const LEVEL_H = ROWS * TILE;
+const GROUND_Y = LEVEL_H - TILE;   // top of the floor row
+
+// All of this is rebuilt for every layout, IN PLACE: the arrays are emptied and
+// refilled, never replaced, because the rest of the file holds on to them.
+const solids = [];      // merged collision rects
+const tiles  = [];      // per-tile render info
+// Every run of floor row that is NOT floor: where the concrete stops and the
+// dark starts. render() shades these, and nothing else needs them.
+const pits   = [];
+// One per = shelf: its span, and where each end's legs come down - the top of
+// the first solid under that end's column, a box stack, the floor or another
+// shelf, or past the bottom of the level over a pit. Lowest shelves first, so a
+// rack standing on another is drawn over the deck its feet are on.
+const racks  = [];
+let spawn = { x: 48, y: 100 };
+let chaseTriggerX = LEVEL_W, exitX = LEVEL_W - 96;
+let TRUCK_X = 0;                     // world x of the truck's left edge, set from exitX
+const boxSpots = [], cardSpots = [], enemySpots = [];
+let TOTAL_BOXES = 0, TOTAL_CARDS = 0;
+let levelSeed = 'classic';           // what built the current layout; ?seed= rebuilds it
+
+function isSolidCh(ch) { return ch === '#' || ch === '='; }
+
+function classicGrid() {
+  const grid = [];
+  for (let r = 0; r < ROWS; r++) {
+    let line = '';
+    for (let a = 0; a < CLASSIC.length; a++) line += CLASSIC[a][r];
+    grid.push(line);
+  }
+  return grid;
+}
+
+// grid: ROWS rows of COLS characters, as strings or arrays.
+function parseLevel(grid) {
+  solids.length = 0; tiles.length = 0; racks.length = 0; pits.length = 0;
+  boxSpots.length = 0; cardSpots.length = 0; enemySpots.length = 0;
+  const under = function (r, c) {             // top of the first solid below (r, c)
+    for (let rr = r + 1; rr < ROWS; rr++) if (isSolidCh(grid[rr][c])) return rr * TILE;
+    return LEVEL_H + 12;                      // a pit: feet out of sight below it
+  };
+  // Which sides of a box tile touch another box tile. render() needs it: the
+  // gaps a box tile leaves are filled with shadow only on those sides, or the
+  // outside of a stack reads as boxes painted on a dark rectangle.
+  const box = function (rr, cc) {
+    return rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS && grid[rr][cc] === '#';
+  };
+  for (let r = 0; r < ROWS; r++) {
+    let runChar = null, runStart = 0;
+    for (let c = 0; c <= COLS; c++) {
+      const ch = c < COLS ? grid[r][c] : null;
+      const solidChar = (ch === '#' || ch === '=') ? ch : null;
+
+      if (solidChar !== runChar) {
+        if (runChar) {
+          solids.push({
+            x: runStart * TILE, y: r * TILE,
+            w: (c - runStart) * TILE,
+            h: runChar === '#' ? TILE : 10,
+            oneWay: runChar === '='            // see moveAndCollide
+          });
+          if (runChar === '=') racks.push({ x: runStart * TILE, y: r * TILE, w: (c - runStart) * TILE,
+                                            footL: under(r, runStart), footR: under(r, c - 1) });
+        }
+        runChar = solidChar; runStart = c;
+      }
+      if (ch === '#' || ch === '=') {
+        tiles.push({ x: c * TILE, y: r * TILE, t: ch,
+                     nL: box(r, c - 1), nR: box(r, c + 1),
+                     nU: box(r - 1, c), nD: box(r + 1, c) });
+      }
+
+      const cx = c * TILE + TILE / 2, cy = r * TILE + TILE / 2;
+      if (ch === 'P') spawn = { x: c * TILE + 3, y: (r + 1) * TILE - Math.round(38 * HERO) };
+      else if (ch === 'b') boxSpots.push({ x: cx, y: cy });
+      else if (ch === 'c') cardSpots.push({ x: cx, y: cy, torch: false });
+      else if (ch === 'T') cardSpots.push({ x: cx, y: cy, torch: true });
+      else if (ch === 'r') enemySpots.push({ x: c * TILE, y: (r + 1) * TILE, kind: 'rat' });
+      else if (ch === 'o') enemySpots.push({ x: c * TILE, y: (r + 1) * TILE, kind: 'roach' });
+      else if (ch === 'S') chaseTriggerX = c * TILE;
+      else if (ch === 'E') exitX = c * TILE;
+    }
+  }
+  for (let c = 0; c < COLS; c++) {                 // the pits, as runs of columns
+    if (isSolidCh(grid[ROWS - 1][c])) continue;
+    let e = c;
+    while (e + 1 < COLS && !isSolidCh(grid[ROWS - 1][e + 1])) e++;
+    pits.push({ x: c * TILE, w: (e - c + 1) * TILE });
+    c = e;
+  }
+  racks.sort(function (a, b) { return b.y - a.y; });
+  TOTAL_BOXES = boxSpots.length;
+  TOTAL_CARDS = cardSpots.length;
+  TRUCK_X = exitX + 8;                // just past the exit, so its open rear shows
+}
+
+/* ==========================================================================
+   3b. GENERATED LEVELS
+      Every playthrough gets its own platforms, boxes and enemies, built from a
+      numbered seed - ?seed=N rebuilds that exact layout, ?seed=classic plays
+      the hand-built one, and ?fps shows which seed is on screen.
+
+      THE ROUTE CHECKER IS THE POINT. A layout is only kept if checkRoutes()
+      proves the exit can be reached and that NO reachable place is a dead end
+      (outside the chase a fall respawns you where you last stood, so a perch
+      whose only way off is a pit would trap you). It does not estimate
+      reach from the jump budget - it runs the player's own movement: the same
+      acceleration, friction, gravity, jump and axis-by-axis collision as
+      updatePlayer and moveAndCollide, one-way shelves and dropping through them
+      included.
+      It is deliberately conservative - jumps start only from tile centres, no
+      coyote time - so it can reject a fine layout but cannot pass a bad one.
+      Pickups go only on tiles it proved can be touched.
+
+      The rules the terrain follows are the ones written down for the level:
+      gaps of two at most, stacks of three at most and two in the chase, a
+      shelf only with three clear rows under it and three over it, and flat
+      open ground at the spawn, the spider trigger, the torch card and the exit.
+   ========================================================================== */
+const SEED_PARAM = (function () {
+  const m = /[?&]seed=([^&]+)/.exec(location.search);
+  if (!m) return null;
+  return m[1] === 'classic' ? 'classic' : (parseInt(m[1], 10) >>> 0);
+})();
+
+function mulberry32(a) {
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// What the generator must reproduce, read off the classic strings - so editing
+// those strings still decides the anchors and the counts.
+const PLAN = (function () {
+  const g = classicGrid();
+  const plan = { P: 0, S: 0, T: 0, E: 0, cards: [], boxes: [0, 0, 0, 0], enemies: [[], [], [], []] };
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const ch = g[r][c], act = Math.floor(c / 48);
+    if (ch === 'P') plan.P = c;
+    else if (ch === 'S') plan.S = c;
+    else if (ch === 'T') plan.T = c;
+    else if (ch === 'E') plan.E = c;
+    else if (ch === 'c') plan.cards.push({ col: c, perch: (r + 1 < ROWS - 1 && isSolidCh(g[r + 1][c])) ? r + 1 : null });
+    else if (ch === 'b') plan.boxes[act]++;
+    else if (ch === 'r' || ch === 'o') plan.enemies[act].push({ col: c, ch: ch });
+  }
+  plan.enemies = plan.enemies.map(function (l) {
+    return l.sort(function (x, y) { return x.col - y.col; }).map(function (e) { return e.ch; });
+  });
+  return plan;
+})();
+
+const PW = Math.round(13 * HERO), PH = Math.round(38 * HERO);   // the player's box, as `player` below
+
+function pickWeighted(list, weight, rand) {
+  let sum = 0;
+  for (let i = 0; i < list.length; i++) sum += weight(list[i]);
+  let x = rand() * sum;
+  for (let i = 0; i < list.length; i++) { x -= weight(list[i]); if (x <= 0) return list[i]; }
+  return list[list.length - 1];
+}
+
+// --- terrain ------------------------------------------------------------------
+function carveTerrain(g, rand) {
+  const RI = function (lo, hi) { return lo + Math.floor(rand() * (hi - lo + 1)); };
+  // flat: no pits and no stacks. open: nothing at all in the playfield.
+  const flat = new Uint8Array(COLS), open = new Uint8Array(COLS);
+  const mark = function (arr, lo, hi) { for (let c = Math.max(0, lo); c <= Math.min(COLS - 1, hi); c++) arr[c] = 1; };
+  mark(flat, 0, PLAN.P + 6);  mark(open, 0, PLAN.P + 3);
+  mark(flat, PLAN.S - 2, PLAN.S + 2);
+  mark(flat, PLAN.T - 12, PLAN.T + 8);    // the cutscene runs, burns and shakes hands along this floor
+  mark(flat, PLAN.E - 5, COLS - 1); mark(open, PLAN.E - 5, COLS - 1);
+
+  const clearBox = function (r0, r1, c0, c1) {
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS || g[r][c] !== '.') return false;
+    }
+    return true;
+  };
+
+  // pits: two wide at most, never within six columns of another
+  for (let act = 0; act < CLASSIC.length; act++) {
+    const want = act === 0 ? RI(0, 1) : RI(2, 3);
+    for (let tries = 0, got = 0; got < want && tries < 60; tries++) {
+      const w = rand() < 0.75 ? 2 : 1, c = act * 48 + RI(2, 45 - w);
+      let ok = true;
+      for (let k = c - 6; k < c + w + 6; k++) if (k < 0 || k >= COLS || flat[k] || g[ROWS - 1][k] !== '#') ok = false;
+      if (!ok) continue;
+      for (let k = c; k < c + w; k++) g[ROWS - 1][k] = '.';
+      got++;
+    }
+  }
+
+  // box stacks: 2-5 wide, 1-3 tall (2 in the chase), sometimes a second tier
+  for (let act = 0; act < CLASSIC.length; act++) {
+    const want = RI(2, 4);
+    for (let tries = 0, got = 0; got < want && tries < 80; tries++) {
+      const w = RI(2, 5), c = act * 48 + RI(1, 46 - w);
+      const chase = c + w > PLAN.S - 3;
+      let h = RI(1, 3);
+      if (chase) h = Math.min(h, 2);
+      let ok = true;
+      for (let k = c - 2; k <= c + w + 1; k++) if (k < 0 || k >= COLS || flat[k] || g[ROWS - 1][k] !== '#') ok = false;
+      // the stack, a column either side, and three rows of standing room on top
+      if (!ok || !clearBox(ROWS - 1 - h - 3, ROWS - 2, c - 1, c + w)) continue;
+      for (let r = ROWS - 1 - h; r <= ROWS - 2; r++) for (let k = c; k < c + w; k++) g[r][k] = '#';
+      if (h < 3 && w >= 4 && !(chase && h + 1 > 2) && rand() < 0.35) {
+        const r = ROWS - 2 - h;
+        if (clearBox(r - 3, r, c, c + w - 1)) for (let k = c + 1; k < c + w - 1; k++) g[r][k] = '#';
+      }
+      got++;
+    }
+  }
+
+  // A shelf needs the nearest solid under it at least three rows down in every
+  // column it spans and one either side - 62 units of clearance for a 57-unit
+  // player - and three clear rows on top of it to stand in.
+  const shelfFits = function (r, c, w) {
+    if (r < 3 || c < 1 || c + w >= COLS) return false;
+    // NOTHING TO CLIMB ONCE THE SPIDER IS UP. Past the trigger the only high
+    // ground is box stacks, so the only way over the spider starts on one -
+    // which is the point: getting behind it has to be a decision, and a stack
+    // is 24 units of head start on a jump that otherwise cannot clear it.
+    if (c + w - 1 >= PLAN.S) return false;
+    for (let k = c - 1; k <= c + w; k++) {
+      if (open[k]) return false;
+      for (let rr = r - 3; rr <= r; rr++) if (g[rr][k] !== '.') return false;
+      for (let rr = r + 1; rr < ROWS; rr++) {
+        if (isSolidCh(g[rr][k])) { if (rr - r < 3) return false; break; }
+      }
+    }
+    // (These two rules predate one-way shelves. Nothing bonks a shelf now, so they
+    // are stricter than they need to be; they stay because removing them would
+    // change the layout behind a large share of seeds.)
+    // A LOW shelf bonks a jump taken beneath it before it gets anywhere. Over
+    // the floor, a standing player's head is 5 units under row 10, 29 under row
+    // 9 and 53 under row 8 - all short of the 82-unit apex a gap needs - so a
+    // jump for a gap under one of these falls into it, every time, from the very
+    // edge the player respawns on. sim.js found layouts looping there, a fall
+    // every second and a half, that the checker had passed because a harder
+    // route over the shelf did exist. Nothing to jump over or up onto within
+    // three columns of one. Row 7 leaves 77 units, which clears a gap, so the
+    // rule stops there.
+    if (r >= ROWS - 6) {
+      for (let k = Math.max(0, c - 3); k <= Math.min(COLS - 1, c + w + 2); k++) {
+        if (g[ROWS - 1][k] !== '#' || g[ROWS - 2][k] !== '.' || g[ROWS - 3][k] !== '.') return false;
+      }
+    }
+    // And for ANY shelf: if there is a gap within three columns, the jump for
+    // that gap must not be cut short by this shelf. Which rows are low enough to
+    // do that depends on what is under it, not on the row number - standing on a
+    // one-tile stack, row 7 leaves 53 units of rise, exactly what row 8 leaves
+    // from the floor, and sim.js was still looping on precisely that. So measure
+    // it: the head of whoever stands on the highest surface in the window has to
+    // clear the shelf's underside by a full 82-unit apex.
+    const lo = Math.max(0, c - 3), hi = Math.min(COLS - 1, c + w + 2);
+    let pit = false;
+    for (let k = lo; k <= hi; k++) if (g[ROWS - 1][k] !== '#') pit = true;
+    if (pit) {
+      let top = ROWS - 1;
+      for (let k = lo; k <= hi; k++) {
+        for (let rr = r + 1; rr < ROWS; rr++) if (isSolidCh(g[rr][k])) { top = Math.min(top, rr); break; }
+      }
+      if (top * TILE - PH - (r * TILE + 10) < 82) return false;
+    }
+    return true;
+  };
+  const putShelf = function (r, c, w) { for (let k = c; k < c + w; k++) g[r][k] = '='; };
+  const surfaces = function () {             // [row, c0, c1] runs of tops you could stand on
+    const list = [];
+    for (let r = 1; r < ROWS - 1; r++) {
+      let c = 0;
+      while (c < COLS) {
+        if (isSolidCh(g[r][c]) && g[r - 1][c] === '.') {
+          let e = c;
+          while (e + 1 < COLS && isSolidCh(g[r][e + 1]) && g[r - 1][e + 1] === '.') e++;
+          list.push([r, c, e]); c = e + 1;
+        } else c++;
+      }
+    }
+    return list;
+  };
+  // one shelf 2-3 rows above something already there, 1-2 columns out from its
+  // end, overlapping columns near..rad of `col`
+  const climbNear = function (col, rad) {
+    const cands = surfaces().filter(function (sf) { return sf[2] >= col - rad - 4 && sf[1] <= col + rad + 4; });
+    for (let tries = 0; tries < 40; tries++) {
+      const w = RI(3, 5);
+      let r, c;
+      if (!cands.length || rand() < 0.25) {              // off the floor itself
+        r = ROWS - 4; c = col - RI(0, w - 1) + RI(-rad, rad);
+      } else {
+        const sf = cands[Math.floor(rand() * cands.length)], gap = RI(1, 2);
+        r = sf[0] - RI(2, 3);
+        c = rand() < 0.5 ? sf[2] + 1 + gap : sf[1] - gap - w;
+      }
+      if (c + w - 1 < col - rad || c > col + rad) continue;
+      if (shelfFits(r, c, w)) { putShelf(r, c, w); return true; }
+    }
+    return false;
+  };
+
+  // low shelves over the floor
+  for (let act = 0; act < CLASSIC.length; act++) {
+    for (let tries = 0, got = 0, want = RI(1, 3); got < want && tries < 60; tries++) {
+      const w = RI(3, 5), c = act * 48 + RI(1, 46 - w);
+      if (shelfFits(ROWS - 4, c, w)) { putShelf(ROWS - 4, c, w); got++; }
+    }
+  }
+  // cards the classic level put up on something get something to be up on
+  PLAN.cards.forEach(function (card) {
+    if (card.perch === null) return;
+    const top = function () {
+      let best = ROWS - 1;
+      surfaces().forEach(function (sf) { if (sf[2] >= card.col - 3 && sf[1] <= card.col + 3) best = Math.min(best, sf[0]); });
+      return best;
+    };
+    for (let i = 0; i < 6 && top() > card.perch; i++) climbNear(card.col, 3);
+  });
+  // and a climb or two into the upper warehouse, where the classic level had them
+  [0, 2].forEach(function (act) {
+    if (rand() < 0.3) return;
+    const col = act * 48 + RI(12, 36);
+    for (let i = 0, n = RI(2, 3); i < n; i++) climbNear(col, 8);
+  });
+}
+
+// --- the route checker ----------------------------------------------------------
+function gridRect(g, r, c) {
+  if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return null;
+  const ch = g[r][c];
+  if (ch === '#') return { x: c * TILE, y: r * TILE, w: TILE, h: TILE };
+  if (ch === '=') return { x: c * TILE, y: r * TILE, w: TILE, h: 10, oneWay: true };
+  return null;
+}
+// moveAndCollide, against the character grid instead of merged rects - the same
+// one-way rule for shelves, the same dropT, counted down the same way
+function gridCollide(g, e, dx, dy) {
+  e.x += dx;
+  for (let r = Math.floor(e.y / TILE); r <= Math.floor((e.y + e.h) / TILE); r++) {
+    for (let c = Math.floor(e.x / TILE); c <= Math.floor((e.x + e.w) / TILE); c++) {
+      const s = gridRect(g, r, c);
+      if (s && !s.oneWay && hit(e, s)) { if (dx > 0) e.x = s.x - e.w; else if (dx < 0) e.x = s.x + s.w; e.vx = 0; }
+    }
+  }
+  const feetBefore = e.y + e.h;
+  e.y += dy;
+  e.grounded = false;
+  for (let r = Math.floor(e.y / TILE); r <= Math.floor((e.y + e.h) / TILE); r++) {
+    for (let c = Math.floor(e.x / TILE); c <= Math.floor((e.x + e.w) / TILE); c++) {
+      const s = gridRect(g, r, c);
+      if (s && s.oneWay && !landsOn(e, s, feetBefore, dy)) continue;
+      if (s && hit(e, s)) {
+        if (dy > 0) { e.y = s.y - e.h; e.grounded = true; }
+        else if (dy < 0) { e.y = s.y + s.h; }
+        e.vy = 0;
+      }
+    }
+  }
+  if (e.dropT > 0) e.dropT -= STEP;
+}
+// updatePlayer, one input held per frame, from a start state. Returns the body
+// where it lands, or null for a fall out of the level or no landing in 4 s.
+function arc(g, st, dirAt, jump, onStep) {
+  const e = { x: st.x, y: st.y, w: PW, h: PH, vx: st.vx, vy: 0, grounded: st.grounded, dropT: st.dropT || 0 };
+  for (let i = 0; i < 240; i++) {
+    const dir = dirAt(i), acc = e.grounded ? ACCEL : AIR_ACCEL;
+    if (dir !== 0) e.vx = clamp(e.vx + dir * acc * STEP, -MAX_RUN, MAX_RUN);
+    else if (e.grounded) {
+      const drop = FRICTION * STEP;
+      e.vx = Math.abs(e.vx) <= drop ? 0 : e.vx - Math.sign(e.vx) * drop;
+    }
+    if (i === 0 && jump) e.vy = JUMP_V;
+    e.vy = Math.min(e.vy + GRAVITY * STEP, MAX_FALL);
+    gridCollide(g, e, e.vx * STEP, e.vy * STEP);
+    e.x = clamp(e.x, 0, LEVEL_W - e.w);
+    if (e.y > LEVEL_H + 80) return null;
+    if (onStep) onStep(e);
+    if (e.grounded && i > 0) return e;
+  }
+  return null;
+}
+// The player standing centred on column c with his feet on row r's top, or
+// null if there is nothing there to stand on or no room to stand.
+function standAt(g, c, r) {
+  if (!gridRect(g, r, c)) return null;
+  const e = { x: c * TILE + (TILE - PW) / 2, y: r * TILE - PH, w: PW, h: PH };
+  for (let rr = Math.floor(e.y / TILE); rr < r; rr++) {
+    const o = gridRect(g, rr, c);
+    if (o && !o.oneWay && hit(e, o)) return null;
+  }
+  return e;
+}
+
+function checkRoutes(g) {
+  const key = function (c, r) { return r * COLS + c; };
+  const nodes = new Map(), out = new Map(), queue = [];
+  const box = new Set(), card = new Set();
+  const add = function (c, r) {
+    const k = key(c, r);
+    if (!nodes.has(k)) {
+      if (!standAt(g, c, r)) return -1;
+      nodes.set(k, { c: c, r: r }); out.set(k, new Set()); queue.push(k);
+    }
+    return k;
+  };
+  // every tile a pickup could be touched on, from one body position: the same
+  // strict overlap hit() uses, against a box's 28x28 and a card's 28x32
+  const touch = function (set, e, hx, hy) {
+    const c0 = Math.ceil((e.x - hx - TILE / 2) / TILE), c1 = Math.floor((e.x + e.w + hx - TILE / 2) / TILE);
+    const r0 = Math.ceil((e.y - hy - TILE / 2) / TILE), r1 = Math.floor((e.y + e.h + hy - TILE / 2) / TILE);
+    for (let r = Math.max(0, r0); r <= Math.min(ROWS - 1, r1); r++) {
+      for (let c = Math.max(0, c0); c <= Math.min(COLS - 1, c1); c++) {
+        const tx = c * TILE + TILE / 2, ty = r * TILE + TILE / 2;
+        if (tx - hx < e.x + e.w && tx + hx > e.x && ty - hy < e.y + e.h && ty + hy > e.y) set.add(key(c, r));
+      }
+    }
+  };
+  const sweep = function (e) { touch(box, e, 14, 14); touch(card, e, 14, 16); };
+  const land = function (e) {
+    const r = Math.round((e.y + e.h) / TILE), mid = Math.floor((e.x + e.w / 2) / TILE);
+    const c0 = Math.floor(e.x / TILE), c1 = Math.floor((e.x + e.w - 0.001) / TILE);
+    const order = [mid, c0, c1];
+    for (let i = 0; i < order.length; i++) if (gridRect(g, r, order[i]) && standAt(g, order[i], r)) return add(order[i], r);
+    return -1;
+  };
+  const JUMPS = [[0, 0], [0, 1], [0, -1], [80, 1], [-80, -1], [MAX_RUN, 1], [-MAX_RUN, -1], [MAX_RUN, 0], [-MAX_RUN, 0]];
+
+  if (add(PLAN.P, ROWS - 1) < 0) return null;
+  while (queue.length) {
+    const k = queue.shift(), n = nodes.get(k), from = out.get(k);
+    const body = standAt(g, n.c, n.r);
+    sweep(body);
+    const link = function (t) { if (t >= 0 && t !== k) from.add(t); };
+    const tryArc = function (st, dirAt, jump) {
+      const trail = [];
+      const e = arc(g, st, dirAt, jump, function (p) { trail.push({ x: p.x, y: p.y, w: PW, h: PH }); });
+      if (e) { trail.forEach(sweep); link(land(e)); }
+    };
+    for (const d of [-1, 1]) {
+      const nc = n.c + d;
+      if (nc < 0 || nc >= COLS) continue;
+      if (gridRect(g, n.r, nc)) { link(add(nc, n.r)); continue; }
+      // off the edge, at a walk and at a run - from just past it, if there is room
+      const sx = d > 0 ? nc * TILE + 0.01 : n.c * TILE - PW - 0.01;
+      const probe = { x: sx, y: body.y, w: PW, h: PH };
+      let blocked = false;
+      for (let rr = Math.floor(probe.y / TILE); rr <= n.r - 1; rr++) {
+        for (let cc = Math.floor(probe.x / TILE); cc <= Math.floor((probe.x + PW) / TILE); cc++) {
+          const o = gridRect(g, rr, cc);
+          if (o && !o.oneWay && hit(probe, o)) blocked = true;
+        }
+      }
+      if (blocked) continue;
+      tryArc({ x: sx, y: body.y, vx: d * 60, grounded: false }, function () { return d; }, false);
+      tryArc({ x: sx, y: body.y, vx: d * MAX_RUN, grounded: false }, function () { return d; }, false);
+    }
+    // jumps; a running start needs somewhere behind to run from
+    const runway = function (d) { return !!standAt(g, n.c - d, n.r); };
+    for (let i = 0; i < JUMPS.length; i++) {
+      const vx = JUMPS[i][0], dir = JUMPS[i][1];
+      if (Math.abs(vx) === MAX_RUN && !runway(Math.sign(vx))) continue;
+      tryArc({ x: body.x, y: body.y, vx: vx, grounded: true }, function () { return dir; }, true);
+    }
+    // Down through the shelf underfoot - standing, steering either way, and from
+    // a run along it. A move the player has and the checker lacks is a place the
+    // player can reach that the dead-end test never looks at, which is the one
+    // direction this checker is not allowed to be wrong in.
+    const underfoot = gridRect(g, n.r, n.c);
+    if (underfoot && underfoot.oneWay) {
+      const DROPS = [[0, 0], [0, -1], [0, 1], [MAX_RUN, 1], [-MAX_RUN, -1]];
+      for (let i = 0; i < DROPS.length; i++) {
+        const vx = DROPS[i][0], dir = DROPS[i][1];
+        if (vx && !runway(Math.sign(vx))) continue;
+        tryArc({ x: body.x, y: body.y, vx: vx, grounded: false, dropT: DROP_T }, function () { return dir; }, false);
+      }
+    }
+    for (const d of [-1, 1]) {        // straight up, then drift over a ledge overhead
+      tryArc({ x: body.x, y: body.y, vx: 0, grounded: true }, function (i) { return i < 14 ? 0 : d; }, true);
+    }
+  }
+
+  // every reachable place must still be able to reach the exit
+  const exits = [];
+  nodes.forEach(function (n, k) { if (n.c >= PLAN.E && n.r === ROWS - 1) exits.push(k); });
+  if (!exits.length) return null;
+  const back = new Map();
+  out.forEach(function (set, k) { set.forEach(function (t) { if (!back.has(t)) back.set(t, []); back.get(t).push(k); }); });
+  const good = new Set(exits), q = exits.slice();
+  while (q.length) {
+    const k = q.pop();
+    (back.get(k) || []).forEach(function (f) { if (!good.has(f)) { good.add(f); q.push(f); } });
+  }
+  let trapped = 0;
+  nodes.forEach(function (n, k) { if (!good.has(k)) trapped++; });
+  return { nodes: nodes, good: good, trapped: trapped, box: box, card: card };
+}
+
+// --- what goes on it -----------------------------------------------------------
+function placePickups(g, R, rand) {
+  const key = function (c, r) { return r * COLS + c; };
+  const busy = function (c, r) { return g[r][c] !== '.'; };
+  const G = ROWS - 2;                                   // the row you stand in on the floor
+  g[G][PLAN.P] = 'P'; g[G][PLAN.S] = 'S'; g[G][PLAN.E] = 'E';
+  if (!R.card.has(key(PLAN.T, G))) return false;
+  g[G][PLAN.T] = 'T';
+
+  // Stand-over tiles: the tile just above somewhere you can stand. Cards go on
+  // the highest of these near their classic column - or, over the bare floor,
+  // up to two rows higher, where the classic level floated them - and only
+  // where the checker saw a body touch.
+  const over = [];
+  R.nodes.forEach(function (n) { over.push({ c: n.c, r: n.r - 1, floor: n.r === ROWS - 1 }); });
+  for (let i = 0; i < PLAN.cards.length; i++) {
+    const cd = PLAN.cards[i];
+    let best = null;
+    over.forEach(function (t) {
+      if (Math.abs(t.c - cd.col) > 4) return;
+      for (let lift = 0; lift <= (t.floor ? 2 : 0); lift++) {
+        const r = t.r - lift;
+        if (r < 1 || busy(t.c, r) || !R.card.has(key(t.c, r))) continue;
+        if (!best || r < best.r || (r === best.r && Math.abs(t.c - cd.col) < Math.abs(best.c - cd.col))) best = { c: t.c, r: r };
+      }
+    });
+    if (!best) return false;
+    g[best.r][best.c] = 'c';
+  }
+
+  // boxes: each act's classic count, in runs of one to three along a surface,
+  // weighted towards high ground
+  for (let act = 0; act < CLASSIC.length; act++) {
+    let need = PLAN.boxes[act];
+    // Never AT or PAST the exit: the door shuts behind the torch and a box out
+    // there is one the run can never collect - measured, 53 of 301 seeds put
+    // one or more past it, up to three.
+    const pool = over.filter(function (t) {
+      return Math.floor(t.c / 48) === act && Math.abs(t.c - PLAN.P) > 2 &&
+             t.c < PLAN.E - 1 && R.box.has(key(t.c, t.r));
+    });
+    for (let tries = 0; need > 0 && pool.length && tries < 400; tries++) {
+      const t = pickWeighted(pool, function (x) { return 1 + (G - x.r); }, rand);
+      if (busy(t.c, t.r)) continue;
+      const run = 1 + Math.floor(rand() * 3), dir = rand() < 0.5 ? -1 : 1;
+      for (let i = 0; i < run && need > 0; i++) {
+        const c = t.c + i * dir;
+        if (c < 0 || c >= COLS || Math.floor(c / 48) !== act || c >= PLAN.E - 1) break;
+        if (busy(c, t.r) || !R.box.has(key(c, t.r)) || !isSolidCh(g[t.r + 1][c])) break;
+        g[t.r][c] = 'b'; need--;
+      }
+    }
+    if (need > 0) return false;
+  }
+
+  // enemies: each act's classic kinds, on open floor with room to patrol, well
+  // clear of the spawn and never past the spider trigger
+  for (let act = 0; act < CLASSIC.length; act++) {
+    const spots = [];
+    for (let c = act * 48; c < act * 48 + 48; c++) {
+      if (c < PLAN.P + 12 || c > PLAN.S - 4) continue;
+      let ok = true;
+      for (let d = -2; d <= 2; d++) {
+        const cc = c + d;
+        if (cc < 0 || cc >= COLS || g[ROWS - 1][cc] !== '#' || isSolidCh(g[G][cc]) || !R.good.has(key(cc, ROWS - 1))) ok = false;
+      }
+      if (ok) spots.push(c);
+    }
+    const placed = [];
+    const kinds = PLAN.enemies[act];
+    for (let i = 0; i < kinds.length; i++) {
+      let got = false;
+      for (let tries = 0; tries < 60 && !got && spots.length; tries++) {
+        const c = spots[Math.floor(rand() * spots.length)];
+        if (busy(c, G) || placed.some(function (p) { return Math.abs(p - c) < 6; })) continue;
+        g[G][c] = kinds[i]; placed.push(c); got = true;
+      }
+      if (!got) return false;
+    }
+  }
+  return true;
+}
+
+function generateLevel(rand) {
+  const g = [];
+  for (let r = 0; r < ROWS; r++) g.push(new Array(COLS).fill(r === ROWS - 1 ? '#' : '.'));
+  carveTerrain(g, rand);
+  const R = checkRoutes(g);
+  if (!R || R.trapped) return null;
+  if (!placePickups(g, R, rand)) return null;
+  return g.map(function (row) { return row.join(''); });
+}
+
+// Build and install a layout. A rejected attempt moves on to a seed derived
+// from the last, so a given seed always ends at the same layout; levelSeed is
+// the one that was actually built, which is what ?seed= needs to rebuild it.
+function newLevel(seed) {
+  if (seed === 'classic') { parseLevel(classicGrid()); levelSeed = 'classic'; return; }
+  let s = (seed == null ? Math.random() * 4294967296 : seed) >>> 0;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const grid = generateLevel(mulberry32(s));
+    if (grid) { parseLevel(grid); levelSeed = s; return; }
+    s = (Math.imul(s, 1103515245) + 12345) >>> 0;
+  }
+  parseLevel(classicGrid()); levelSeed = 'classic';     // twelve rejections: the hand-built level
+}
+newLevel(SEED_PARAM);
+
+/* ==========================================================================
+   4. ART PIPELINE
+      Drop a PNG at the listed path and it replaces the placeholder automatically.
+      Nothing breaks while the files are missing. See art-spec.md for sizes.
+   ========================================================================== */
+// bw / bh = the box this sprite occupies IN WORLD UNITS — never in pixels.
+// The PNG's own resolution is read off the file at load time, so a 32x48
+// player frame and a 96x144 player frame both drop in and work; the bigger
+// one simply carries more detail. Match your art to S and every source pixel
+// lands on exactly one canvas pixel with no resampling.
+// HOW BIG TORCH GUY IS. make_torchguy.py draws him at the same 3 px per world
+// unit as everything else, which made him 60.33 units tall - a hair TALLER
+// than the player. TORCH_K is the one number that shrinks him, and every
+// quantity measured off his sheet is written as that drawing's own figure
+// times TORCH_K: the frame, the inferno muzzle, the handshake gap, the run
+// stride, the width his planted feet need floor under. Change TORCH_H and all
+// of them move together. Both heights are measured off the sheets, head to
+// sole; make_torchguy.py prints his on every run.
+const PLAYER_ART_H = 59.33;             // player.png frame 0
+const TORCH_ART_H  = 60.33;             // torchguy.png frame 6, standing
+const TORCH_H      = 0.70 * PLAYER_ART_H;
+const TORCH_K      = TORCH_H / TORCH_ART_H;
+
+const ART = {
+  player:   { url:'art/player.png',   bw:48, bh:48*HERO, n:13 }, // cut-out rig: 2 idle, 8 run, jump, fall, handshake
+  // Drawn art. bw/bh come straight off tools/make_enemies.py, which prints
+  // these lines - the frames are far wider than the animal because the body is
+  // centred in them and the rat's tail and the roach's antennae are padding.
+  // sink is how far the frame's bottom hangs BELOW the ground: the rat's tail
+  // sweeps two units past its feet, and without it the rat stands on the tail.
+  rat:      { url:'art/rat.png',      bw:116/S, bh:49/S, sink:6/S, n:4 },
+  roach:    { url:'art/roach.png',    bw:75/S,  bh:44/S, n:4 },
+  spider:   { url:'art/spider.png',   bw:80, bh:60, n:12 }, // 8 walk, 4 death
+  // 232/S, not 48*HERO: the sheet frame grew to 360x232 so a raised torch has
+  // headroom. bh must track the frame height to keep pixels square - at the old
+  // 72 he would render 7% squashed. The figure is still 60 world units either way.
+  torchguy: { url:'art/torchguy.png', bw:120*TORCH_K, bh:(232/S)*TORCH_K, n:22 },  // cutscene poses; wide box holds the jet
+  box:      { url:'art/box.png',      bw:26, bh:74/S, n:1 },   // drawn in 3/4, wider than tall
+  card:     { url:'art/card.png',     bw:16, bh:22, n:24 },  // 6 designs x 4 spin frames
+                                                            // -> tools/make_cards.py
+  truck:    { url:'art/truck.png',    bw:170,bh:96, n:1 },
+  // The inferno jet. Its own sheet now rather than baked into torch guy's
+  // inferno frames - tools/make_flame.py, built from the same rig cut-out the
+  // baked one was. 80x30 world units, and it is NOT drawn through sprite():
+  // sprite() centres on x and sits the bottom on y, and a jet has to hang its
+  // RIGHT edge on the muzzle, centred on the muzzle's own height.
+  flame:    { url:'art/flame.png',    bw:80, bh:30, n:6 },
+  // What lands on you if you end up behind the spider - tools/make_grimace.py.
+  // Frame 0 falls, frame 1 is the landing squash; both are bottom-aligned in
+  // the same box, so he does not hop when he lands.
+  grimace:  { url:'art/grimace.png',  bw:557/S, bh:474/S, n:2 },
+  // The floor breaking under him - tools/make_cracks.py. 24 units tall, which is
+  // the floor row exactly, and wide enough to run past him on both sides.
+  cracks:   { url:'art/cracks.png',   bw:360, bh:24, n:1 },
+  // The wall itself, drawn art rather than blocked-in colour. bw/bh are read
+  // off the loaded image instead of trusted from here, so re-running
+  // tools/make_bg.py at another scale needs no edit in this file.
+  bgClosed: { url:'art/bg_closed.png', bw:160, bh:148, n:1 },
+  bgOpen:   { url:'art/bg_open.png',   bw:160, bh:148, n:1 },
+  // The rest of the stage, also from tools/make_bg.py, also sized off the
+  // loaded image rather than from here.
+  bgUpper:   { url:'art/bg_upper.png',   bw:160, bh:246, n:1 },  // roof to door tops
+  bgFloor:   { url:'art/bg_floor.png',   bw:192, bh:24,  n:1 },  // sampled by world x
+  bgBoxWall: { url:'art/bg_boxwall.png', bw:24,  bh:24,  n:1 },  // one # tile
+  // The = shelves, as a steel rack - tools/make_rack.py. Pieces, not a sprite:
+  // the deck is a left end, a middle laid as often as the shelf is wide, and a
+  // right end; the legs are two tall strips cropped from the bottom to reach
+  // whatever is under them. Sized off the loaded images, like the stage.
+  rackDeck:  { url:'art/rack_deck.png',  bw:62/S, bh:36/S,  n:3 },
+  rackLegs:  { url:'art/rack_legs.png',  bw:33/S, bh:894/S, n:2 }
+};
+// Where the rack's pieces hang off a shelf, in world units. make_rack.py prints
+// this line on every run - if a change to the drawing moves one, it shows there.
+//   feet    the deck image's top is this far above the shelf's walking line,
+//           which is the rack's back rail: the floor and the box stacks are
+//           stood on at their top edge, the wall line, and so is this
+//   legTop  the legs start this far below the walking line, under the beam
+//   ground  the legs' bottom row hangs this far below the surface they stand
+//           on - the back feet sit ON the line and the front feet 4.7 units
+//           lower, on the floor in front, as the drawing has them
+const RACK = { feet:2, legTop:7.9, ground:5.3 };
+for (const k in ART) {
+  const a = ART[k];
+  a.ready = false;
+  const img = new Image();
+  img.onload = function () { a.ready = true; };
+  img.src = a.url;
+  a.img = img;
+}
+
+// Kicker and name for the banner, read off the drawings themselves, in the
+// same order as DESIGNS in tools/make_cards.py. The torch card is last, and
+// TORCH_DESIGN is what resetRun() hands the 'T' pickup.
+const CARD_NAMES = [['LAVA TITAN','IGNIS CORE'], ['TIDAL SOVEREIGN','AQUA LUXIA'],
+                    ['EARTH GUARDIAN','TERRASTONE ANCIENT'], ['RB #27','BLAZE'],
+                    ['ALL-STAR LB','THUNDER'], ['UNIT 47','D.T.C.']];
+const TORCH_DESIGN = CARD_NAMES.length - 1;
+const CARD_STEP = 100 / (CARD_NAMES.length - 1);   // background-position per design
+
+// Draw sprite frame `f`, bottom-centred on (x, y). flip = facing left.
+// `sink` lets a frame hang below that line for art that is drawn past its own
+// ground contact - see ART.rat - and defaults to nothing.
+function sprite(key, f, x, y, flip) {
+  const a = ART[key];
+  if (!a || !a.ready) return false;
+  const fw = a.img.width / a.n, fh = a.img.height;   // native frame size, whatever it is
+  const sx = (f % a.n) * fw;
+  ctx.save();
+  ctx.translate(Math.round(x * S) / S, Math.round(y * S) / S);   // snap to the render grid
+  if (flip) ctx.scale(-1, 1);
+  ctx.drawImage(a.img, sx, 0, fw, fh, -a.bw / 2, -a.bh + (a.sink || 0), a.bw, a.bh);
+  ctx.restore();
+  return true;
+}
+
+/* ==========================================================================
+   5. CANVAS
+   ========================================================================== */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d', { alpha:false });
+canvas.width = VIEW_W * S; canvas.height = VIEW_H * S;
+ctx.imageSmoothingEnabled = false;
+
+// How much world the view may show vertically. The cap was 420 once, which on
+// a 393x852 phone meant 84 units of ROOF above a level only 336 tall, and the
+// five rows anyone plays in down to 29% of the screen. 300 took the roof away.
+// 240 takes 60 units of WALL with it: standing on the floor the view runs from
+// y=96 now rather than y=36, the playfield is half of it against 40%, and the
+// camera pans up the moment the player climbs.
+// IT MAKES THE PICTURE SHORTER, NOT THE CHARACTER BIGGER. Canvas height is
+// VIEW_H x scale, so 60 units off the view is 74 CSS pixels off the canvas on
+// that phone, and they come back as letterbox. That is the whole trade: less
+// dead wall inside the frame, more dark outside it. Only VIEW_W makes anything
+// bigger, and the chase sets a floor under how far that can go.
+const VIEW_H_MIN = 200, VIEW_H_MAX = 240;
+// env(safe-area-inset-*) is a CSS value and nothing in script can read one, so
+// #safe is padded by two of them and measured here. It is not cosmetic: the
+// page runs under the notch (viewport-fit=cover), #hud is placed below the
+// inset and the stage has to hold back the same amount or the status line is
+// drawn over the top of the game.
+const safeEl = document.getElementById('safe');
+function safeInset() {
+  if (typeof getComputedStyle !== 'function' || !safeEl) return { top:0, bottom:0 };
+  const s = getComputedStyle(safeEl);
+  return { top: parseFloat(s.paddingTop) || 0, bottom: parseFloat(s.paddingBottom) || 0 };
+}
+
+let safeSeen = { top:0, bottom:0 };    // what the last resize() measured, for ?fps
+function resize() {
+  const portrait = window.innerHeight > window.innerWidth;
+  const touch    = pad.classList.contains('on');
+  const safe     = safeInset();
+  safeSeen = safe;
+  // The same max() #stage's padding-top uses, for the same reason: the inset is
+  // zero wherever the browser has already put the page below its own furniture.
+  const padTop   = portrait ? Math.max(96, safe.top + 84) : safe.top + 28;
+  const reserve  = touch && portrait ? 224 + safe.bottom : 0;   // the d-pad, portrait only
+  const availH   = window.innerHeight - padTop - reserve;
+
+  // THE ZOOM. A phone held tall gets the narrow view. A phone turned sideways
+  // does not: there it is HEIGHT that is short, the canvas is already fitted to
+  // it, and narrowing the view would only show less world at the same size.
+  // Anything wide enough not to be a phone keeps 384 as well.
+  VIEW_W = (touch && portrait && window.innerWidth <= 560) ? VIEW_W_PHONE : VIEW_W_WIDE;
+  BG_OPEN_X = openBayX();                         // VIEW_W is in it
+
+  let   scale    = window.innerWidth / VIEW_W;    // horizontal zoom: fixed by VIEW_W
+
+  // Vertical is whatever is actually on the screen. A fixed 16:9 canvas left
+  // ~450 CSS points of dead band between the game and the thumb buttons; this
+  // spends it on visible world instead. The character does not change size —
+  // its pixel height comes from VIEW_W, which is untouched.
+  let vh = Math.floor(availH / scale);
+  if (vh < VIEW_H_MIN) { vh = VIEW_H_MIN; scale = availH / vh; }  // short viewport: fit height, letterbox width
+  VIEW_H = Math.min(VIEW_H_MAX, vh);
+
+  canvas.width  = VIEW_W * S;
+  canvas.height = VIEW_H * S;
+  ctx.imageSmoothingEnabled = false;     // resizing the backing store resets this
+  canvas.style.width  = Math.round(VIEW_W * scale) + 'px';
+  canvas.style.height = Math.round(VIEW_H * scale) + 'px';
+  refreshPadRects();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 120); });
+
+/* ==========================================================================
+   6. INPUT — keyboard + multitouch tracked per finger identifier
+   ========================================================================== */
+const input = { left:false, right:false, jump:false, jumpPressed:false, down:false, downPressed:false, locked:false };
+const keys  = { left:false, right:false, jump:false, down:false };
+const pad = document.getElementById('pad');
+const dpadEl = document.getElementById('dpad'), jumpEl = document.getElementById('bJump');
+const armEl = { up:document.getElementById('bUp'),   down:document.getElementById('bDown'),
+                left:document.getElementById('bLeft'), right:document.getElementById('bRight') };
+let dpadRect = null, jumpRect = null;
+const touches = new Map();                 // touch identifier -> the actions it holds
+if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+  pad.classList.add('on');
+  document.body.classList.add('touch');      // the stage leaves room for the pad
+}
+document.body.classList.add('sheeted');     // the splash is up; no pad under it
+
+// The pad is hidden while any sheet is showing, and a hidden pad measures zero,
+// so its rects have to be taken again on the way in and on the way out. Held
+// touches go with it: a thumb down on the pad when the sheet arrives would
+// otherwise still be held when the next run starts.
+function showPad(on) {
+  document.body.classList.toggle('sheeted', !on);
+  if (!on) { touches.clear(); syncInput(); }
+  refreshPadRects();
+}
+
+function refreshPadRects() {
+  dpadRect = dpadEl.getBoundingClientRect();
+  jumpRect = jumpEl.getBoundingClientRect();
+}
+// THE D-PAD IS ONE HIT TEST, NOT FOUR. Where the thumb is inside the cross is
+// read as -1..1 on each axis, and anything past DPAD_DEAD on an axis is that
+// direction held - so a CORNER holds two, which is the whole point of a cross:
+// one thumb can run and jump, or hold right and drop through a shelf. Four
+// rects cannot do that, and stretched enough to be reachable they overlap along
+// every shared edge, where the first one in the list would win the roll. That
+// overlap is why DOWN used to sit above JUMP on the right instead of beside the
+// arrows, and it is why it no longer has to.
+// JUMP is tested first, so where the two live regions touch - which they only
+// do on a screen narrower than 375px - the big obvious button wins.
+const DPAD_EDGE = 14;        // live margin round the cross, CSS px
+const DPAD_DEAD = 0.3;       // the hub, as a fraction of the cross's half-width
+function hitTest(x, y) {
+  const j = jumpRect;
+  if (j && j.width && x >= j.left - 10 && x <= j.right + 10 &&
+      y >= j.top - 20 && y <= j.bottom + 20) return ['jump'];
+  const r = dpadRect;
+  if (!r || !r.width) return null;
+  if (x < r.left - DPAD_EDGE || x > r.right + DPAD_EDGE ||
+      y < r.top  - DPAD_EDGE || y > r.bottom + DPAD_EDGE) return null;
+  const dx = (x - (r.left + r.right) / 2) / (r.width / 2);
+  const dy = (y - (r.top + r.bottom) / 2) / (r.height / 2);
+  const acts = [];
+  if (dx < -DPAD_DEAD) acts.push('left'); else if (dx > DPAD_DEAD) acts.push('right');
+  if (dy < -DPAD_DEAD) acts.push('jump'); else if (dy > DPAD_DEAD) acts.push('down');
+  return acts;               // [] on the hub: on the pad, holding nothing
+}
+function syncInput() {
+  let l = keys.left, r = keys.right, j = keys.jump, d = keys.down;
+  touches.forEach(function (acts) {
+    for (let i = 0; i < acts.length; i++) {
+      const a = acts[i];
+      if (a === 'left') l = true; else if (a === 'right') r = true;
+      else if (a === 'jump') j = true; else if (a === 'down') d = true;
+    }
+  });
+  if (j && !input.jump) input.jumpPressed = true;
+  if (d && !input.down) input.downPressed = true;     // a tap between two frames still drops
+  input.left = l; input.right = r; input.jump = j; input.down = d;
+  armEl.left.classList.toggle('held', l);
+  armEl.right.classList.toggle('held', r);
+  armEl.up.classList.toggle('held', j);               // UP is jump, wherever it came from
+  armEl.down.classList.toggle('held', d);
+  jumpEl.classList.toggle('held', j);
+}
+// PREVENTDEFAULT ONLY FOR THE PAD. This used to fire on every touch anywhere
+// on the page, and on a phone that also cancels the click the browser would
+// synthesise afterwards - so RUN IT BACK and the mute button did nothing when
+// tapped, while working fine under a mouse, which is why it shipped. Scrolling
+// and zooming are already off through CSS (touch-action:none on body, plus
+// user-select and touch-callout), so the only thing this call is needed for is
+// keeping a thumb held on a pad button from turning into a text selection.
+function tStart(e) {
+  unlockAudio();
+  let onPad = false;
+  for (let i = 0; i < e.changedTouches.length; i++) {
+    const t = e.changedTouches[i], a = hitTest(t.clientX, t.clientY);
+    if (a) { touches.set(t.identifier, a); onPad = true; }
+  }
+  if (onPad) e.preventDefault();
+  syncInput();
+}
+function tMove(e) {
+  let tracking = false;
+  for (let i = 0; i < e.changedTouches.length; i++) {
+    const t = e.changedTouches[i], a = hitTest(t.clientX, t.clientY);
+    if (touches.has(t.identifier)) tracking = true;
+    if (a) touches.set(t.identifier, a); else touches.delete(t.identifier);
+  }
+  if (tracking) e.preventDefault();
+  syncInput();
+}
+function tEnd(e) {
+  for (let i = 0; i < e.changedTouches.length; i++) touches.delete(e.changedTouches[i].identifier);
+  syncInput();
+}
+document.addEventListener('touchstart', tStart, { passive:false });
+document.addEventListener('touchmove',  tMove,  { passive:false });
+document.addEventListener('touchend',   tEnd,   { passive:false });
+document.addEventListener('touchcancel',tEnd,   { passive:false });
+
+function keyAct(code) {
+  if (code === 'ArrowLeft'  || code === 'KeyA') return 'left';
+  if (code === 'ArrowRight' || code === 'KeyD') return 'right';
+  if (code === 'Space' || code === 'ArrowUp' || code === 'KeyW' || code === 'KeyZ') return 'jump';
+  if (code === 'ArrowDown' || code === 'KeyS') return 'down';
+  return null;
+}
+window.addEventListener('keydown', function(e){ const a=keyAct(e.code); if(!a)return; e.preventDefault(); keys[a]=true; syncInput(); });
+window.addEventListener('keyup',   function(e){ const a=keyAct(e.code); if(!a)return; e.preventDefault(); keys[a]=false; syncInput(); });
+
+/* ==========================================================================
+   7. AUDIO — iOS starts the context suspended; the splash tap resumes it
+   ========================================================================== */
+let ac = null, dry = null, verb = null, wet = null;
+let musicBuf = null, music = null, musicGain = null, muted = false, audioFailed = false;
+const MUSIC_VOL = 0.5;
+const FART_VOL = 0.6;            // the recording peaks at 0.97 and averages 0.10; the music
+                                 // peaks 0.98, averages 0.14 and plays at 0.5, so this sits
+                                 // level with it on average and well over it on the hit,
+                                 // with headroom left before the mix clips
+// THE GAME OVER CLIP WAS 0.9, WHICH IS NOT A MIX. The music plays at 0.5 and
+// peaks at 0.98, so 0.9 of a clip that peaks near full scale sums well past 1
+// and LOOPS there until RUN IT BACK - and what comes back out of a converter
+// asked for more than it has is not two sounds, it is both of them squashed.
+// That is what "the music changes after the spider" sounds like. At 0.45 the
+// worst case is about 0.94 and the clip is still the loudest thing on the
+// sheet. Nothing in the game moves the MUSIC's own gain: it is written in
+// playMusic(), in setMuted() and in resetMusicLevel(), and nowhere else.
+const LOSER_VOL = 0.45;
+const muteEl = document.getElementById('mute');
+
+// An exponentially decaying noise burst makes a serviceable room reverb, and
+// generating it costs nothing to ship - no impulse-response file to download.
+function makeIR(seconds, decay) {
+  const rate = ac.sampleRate, n = Math.floor(rate * seconds);
+  const buf = ac.createBuffer(2, n, rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, decay);
+  }
+  return buf;
+}
+
+function unlockAudio() {
+  if (!ac) {
+    const A = window.AudioContext || window.webkitAudioContext; if (!A) return;
+    ac = new A();
+    dry = ac.createGain(); dry.gain.value = muted ? 0 : 1.0; dry.connect(ac.destination);
+    verb = ac.createConvolver(); verb.buffer = makeIR(2.8, 2.2);
+    wet = ac.createGain(); wet.gain.value = muted ? 0 : 0.55;
+    verb.connect(wet); wet.connect(ac.destination);
+    loadMusic();
+    loadFart();
+    loadLoserSound();
+  }
+  if (ac.state === 'suspended') ac.resume().then(refreshAudioLabel);
+  playMusic();
+  refreshAudioLabel();
+}
+
+function loadMusic() {
+  if (typeof fetch !== 'function') return;
+  fetch('audio/theme.mp3')
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+    .then(function (b) {
+      return new Promise(function (res, rej) { ac.decodeAudioData(b, res, rej); });
+    })
+    .then(function (buf) { musicBuf = buf; playMusic(); })
+    .catch(function (err) {
+      // Say so rather than swallowing it. A silent catch here meant a failed
+      // decode was indistinguishable from a muted browser.
+      audioFailed = true;
+      if (muteEl) muteEl.textContent = 'NO MUSIC';
+      if (window.console) console.warn('soundtrack failed to load:', err);
+    });
+}
+
+// Any gesture retries the unlock. Browsers suspend the context for all sorts
+// of reasons after the first tap; one entry point was too few.
+window.addEventListener('pointerdown', unlockAudio);
+window.addEventListener('keydown', function (e) {
+  unlockAudio();
+  if (e.code === 'KeyM') setMuted(!muted);
+});
+
+// MP3 carries encoder delay and padding inside the stream, so the decoded
+// buffer has silence at both ends. Looping the whole buffer would put that
+// silence at the seam on every pass. Find the first and last sample that is
+// actually audible and loop between those instead - no Xing/LAME header
+// parsing, and it holds for whatever encoder produced the file.
+function audibleRange(buf) {
+  const d = buf.getChannelData(0), n = d.length, thr = 0.0015;
+  let a = 0, b = n - 1;
+  while (a < n && Math.abs(d[a]) < thr) a++;
+  while (b > a && Math.abs(d[b]) < thr) b--;
+  if (a >= b) return { start: 0, end: buf.duration };            // all quiet; use it whole
+  return { start: a / buf.sampleRate, end: (b + 1) / buf.sampleRate };
+}
+
+function playMusic() {
+  if (!musicBuf || music || !ac || ac.state !== 'running') return;
+  const r = audibleRange(musicBuf);
+  music = ac.createBufferSource();
+  music.buffer = musicBuf;
+  music.loop = true;
+  music.loopStart = r.start; music.loopEnd = r.end;
+  musicGain = ac.createGain();
+  musicGain.gain.value = muted ? 0 : MUSIC_VOL;
+  music.connect(musicGain); musicGain.connect(ac.destination);
+  music.start(0, r.start);
+}
+
+// Reports real state, so a silent game can be told apart from a muted one.
+function audioLabel() {
+  if (audioFailed) return '\u26A0 NO MUSIC';
+  if (!ac || ac.state !== 'running') return '\uD83D\uDD08 TAP FOR SOUND';
+  return muted ? '\uD83D\uDD07 MUTED' : '\uD83D\uDD0A SOUND ON';
+}
+function refreshAudioLabel() {
+  if (muteEl) muteEl.textContent = audioLabel();
+}
+setInterval(refreshAudioLabel, 500);
+
+// Puts the music back where it belongs, with a short ramp so it is not a step.
+// Nothing should ever have moved it - but a run that has just been through the
+// crush has had the loudest thing in the game looping over it, and calling this
+// from resetRun() makes "the music is at MUSIC_VOL" true by assertion at the
+// start of every run rather than by reading the code.
+function resetMusicLevel() {
+  if (!musicGain || !ac) return;
+  const t = ac.currentTime;
+  musicGain.gain.cancelScheduledValues(t);
+  musicGain.gain.setValueAtTime(musicGain.gain.value, t);
+  musicGain.gain.linearRampToValueAtTime(muted ? 0 : MUSIC_VOL, t + 0.15);
+}
+
+function setMuted(m) {
+  muted = m;
+  if (musicGain) musicGain.gain.value = m ? 0 : MUSIC_VOL;
+  if (dry) dry.gain.value = m ? 0 : 1.0;
+  if (wet) wet.gain.value = m ? 0 : 0.55;
+  refreshAudioLabel();
+}
+if (muteEl) muteEl.addEventListener('click', function (e) {
+  // Unlock here too. This button sits over the splash, and stopPropagation
+  // means the splash never sees the click - so without this, tapping the
+  // thing labelled SOUND ON was the one gesture that guaranteed silence.
+  e.stopPropagation();
+  unlockAudio();
+  setMuted(!muted);
+});
+
+// Synth bell: inharmonic partials, near-instant attack, long exponential tail,
+// sent to the reverb as well as the dry bus. The 2.76 and 5.4 ratios are what
+// stop it sounding like a plain sine beep.
+const BELL = [[1, 1, 1], [2.01, 0.46, 0.72], [2.76, 0.26, 0.55], [5.42, 0.11, 0.34]];
+function chime(freq, dur, vol) {
+  if (!ac || ac.state !== 'running') return;
+  const t = ac.currentTime, out = ac.createGain();
+  out.gain.value = vol == null ? 0.055 : vol;
+  out.connect(dry); out.connect(verb);
+  for (let i = 0; i < BELL.length; i++) {
+    const p = BELL[i], o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(freq * p[0], t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(p[1], t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur * p[2]);
+    o.connect(g); g.connect(out);
+    o.start(t); o.stop(t + dur * p[2] + 0.05);
+  }
+}
+
+function blip(freq, dur, type, vol) {
+  if (!ac || ac.state !== 'running') return;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type || 'square';
+  o.frequency.setValueAtTime(freq, ac.currentTime);
+  g.gain.setValueAtTime(vol || 0.05, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+  o.connect(g); g.connect(dry); g.connect(verb);
+  o.start(); o.stop(ac.currentTime + dur);
+}
+function noise(dur, vol) {
+  if (!ac || ac.state !== 'running') return;
+  const n = Math.floor(ac.sampleRate * dur);
+  const buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const s = ac.createBufferSource(), g = ac.createGain();
+  s.buffer = buf; g.gain.value = vol || 0.08;
+  s.connect(g); g.connect(dry); g.connect(verb); s.start();
+}
+
+// GRIMACE'S FART is audio/fart.mp3 - a recording, reverb and all, in place of
+// the synthesiser that used to be here. Loaded and decoded beside the
+// soundtrack, through the same context and the same failure handling.
+//
+// `env` is the loudness per 1/60s frame, 0..1, measured off the decoded buffer,
+// and render() shakes the screen by it - so the rumble is this recording's own
+// shape and follows its tail down, rather than a curve typed here to look like
+// one. `fartQuiet` is when it drops under QUIET for the last time, which is
+// when the sheet comes up: the file runs 3.3s and most of that is reverb tail,
+// and the screen should not sit shaking through it.
+//
+// Nothing decoded means no sound, but the beat still has to play, so env falls
+// back to a plain decay. That is also what Node gets, because load_game has no
+// fetch - so the tools measure a fixed timeline rather than a missing one.
+const FART_AT = 0.35;            // s after he lands: the thud, a beat, then this
+const QUIET   = 0.08;            // of the peak; under this it is only the room
+let fartBuf = null, fartEnv = null, fartQuiet = 1.2;
+const FART_FALLBACK = (function () {
+  const n = 72, e = new Float32Array(n);                    // 1.2s at 60fps
+  for (let i = 0; i < n; i++) e[i] = Math.exp(-i / 26);
+  return e;
+})();
+
+function loadFart() {
+  if (typeof fetch !== 'function') return;
+  fetch('audio/fart.mp3')
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+    .then(function (b) {
+      return new Promise(function (res, rej) { ac.decodeAudioData(b, res, rej); });
+    })
+    .then(function (buf) { fartBuf = buf; measureFart(buf); })
+    .catch(function (err) { if (window.console) console.warn('fart failed to load:', err); });
+}
+
+function measureFart(buf) {
+  const d = buf.getChannelData(0), rate = buf.sampleRate;
+  const frames = Math.ceil(buf.duration * 60), env = new Float32Array(frames);
+  let top = 0;
+  for (let k = 0; k < frames; k++) {
+    let sum = 0;
+    const a = Math.floor(k * rate / 60), b = Math.min(d.length, Math.floor((k + 1) * rate / 60));
+    for (let i = a; i < b; i++) sum += d[i] * d[i];
+    env[k] = Math.sqrt(sum / Math.max(1, b - a));
+    top = Math.max(top, env[k]);
+  }
+  let last = 0;
+  for (let k = 0; k < frames; k++) { env[k] /= (top || 1); if (env[k] > QUIET) last = k; }
+  fartEnv = env; fartQuiet = (last + 1) / 60;
+}
+
+// Dry only: the recording carries its own reverb, and the convolver on top of
+// that is mush.
+function fart() {
+  if (fartBuf && ac && ac.state === 'running') {
+    const s = ac.createBufferSource(), g = ac.createGain();
+    s.buffer = fartBuf; g.gain.value = FART_VOL;
+    s.connect(g); g.connect(dry); s.start();
+  }
+  return fartEnv || FART_FALLBACK;
+}
+
+/* ==========================================================================
+   8. STATE
+   ========================================================================== */
+let safeX = 0, safeY = 0;   // last confirmed footing, used as the respawn point
+const player = { x:0, y:0, w:Math.round(13*HERO), h:Math.round(38*HERO), vx:0, vy:0, grounded:false, face:1, invuln:0, anim:0, dropT:0 };
+const cam = { x:0, y:0, shake:0 };
+// lunge counts DOWN through a snap upwards; base is where the legs are, and y
+// is base minus the lift, so the collision box goes up with the picture.
+const spider = { x:0, y:0, base:0, lift:0, lunge:0, w:64, h:44, active:false, burn:0, char:0, anim:0 };
+// IT SNAPS AT ANYONE OVER IT. Getting behind the spider is what brings Grimace
+// down, and it was far too easy: from flat ground, measured over a sweep of
+// distances and jump timings, 364 of 1681 attempts cleared it. It should cost
+// something - a box stack to jump from, deliberately - so when the player is
+// airborne and close, it rears LUNGE_UP units over LUNGE_T seconds. His feet
+// reach 82 units over the floor at the apex of a jump, and 106 from a one-tile
+// stack, so a rear to 84 is over one and under the other. Touching it while it
+// is up is an ordinary hit: a mistimed jump costs a respawn in front of it.
+const LUNGE_UP = 40, LUNGE_T = 0.42, LUNGE_NEAR = 95;
+const torch  = { x:0, y:0, active:false, t:0, done:false, phase:'none', pt:0, anim:0, burnX:0 };
+// THE UNIT AT THE END IS SHUT until the torch settles the spider: the truck
+// does not get loaded with that thing still chasing. It is one boolean and not
+// an animation, because the moment it opens is always off screen - the torch
+// card sits at a fixed column, so the camera is at 3989 when the spider dies
+// and the bay tile is at 417..577 against a 384-unit view. Measured on eleven
+// layouts, all identical: the player is input-locked through the cutscene, so
+// nothing about the run can move it.
+// Shut is drawn by NOT drawing the open bay. The wall is already tiled with
+// the closed-door art, so the end of the unit is a shut door like every other
+// one, and there is no second door to match to the first. Overlaying a shutter
+// on the open bay was the other option and it cannot work: bg_closed.png and
+// bg_open.png are different photographs that differ across the whole tile
+// (only 42% of pixels alike), so any frame showing both shows the join.
+// What opens it is forced by the plan, S before T before E (tools/audit.js
+// checks that ordering now): the spider has to be triggered before the torch
+// card will summon anyone, and both sit left of the door on every layout.
+function gateShut() { return !torch.done; }
+let gateBump = 0;                // counts down after the player runs into it
+
+// WHAT LANDS ON YOU IF YOU GET BEHIND THE SPIDER. The chase runs one way:
+// it comes from the left and the way out is right. Ending up to its LEFT is
+// not a mistake the level can make for you - touching it costs a hit and puts
+// you back in front of it - so the only way there is to jump clean over it,
+// and that is a decision. grim.y is the BOTTOM of him, the way sprite()
+// measures; grim.down is the landing, which is also when the player stops
+// being drawn, because by then he is underneath.
+// grim.drop is whether he has been released at all: he waits for the player
+// to come down first. grim.onFloor is whether he landed on concrete, which is
+// the only thing that cracks - a box stack or a shelf just takes the slam.
+// grim.env is the fart's loudness per frame once he has let it go, null before -
+// see fart(); it is what the screen rumbles by.
+const grim = { x:0, y:0, vy:0, t:0, drop:false, down:false, onFloor:false, env:null };
+// Where something got stomped into the concrete, and when. They stay for the
+// rest of the run: the floor keeps the score even though the sheet will not.
+let stomps = [];
+const STOMP_REACH = 26;          // units either side, the cracks strip's middle
+const STOMP_GROW  = 0.18;        // s to spread that far
+const GRIM_G = 4200;             // u/s^2 - he is not falling, he is arriving
+let crushed = false;             // this run ended under him; the sheet says so
+
+let boxes = [], cards = [], enemies = [], loose = [];
+let state = 'play';            // play | cutscene | ending | score
+let clock = 0, boxesGot = 0, cardsGot = 0, hits = 0, bonusPts = 0;
+let coyoteT = 0, bufferT = 0, chaseStartX = 0, cutT = 0, endT = 0;
+let finalScore = 0, grade = 'C';
+
+function resetRun() {
+  player.x = spawn.x; player.y = spawn.y; safeX = spawn.x; safeY = spawn.y;
+  player.vx = 0; player.vy = 0; player.grounded = false; player.invuln = 0; player.face = 1; player.dropT = 0;
+  cam.x = 0; cam.y = LEVEL_H - VIEW_H; cam.shake = 0;
+  stomps = [];
+  boxes = boxSpots.map(function(b){ return { x:b.x, y:b.y, got:false }; });
+  // The torch card is always the LAST design - the D.T.C. card, the one whose
+  // full-screen graphic the pickup freezes the game behind. The rest take
+  // 0..4 in the order the level parser found them. tools/make_cards.py owns
+  // that order; this index has to agree with it.
+  let nextDesign = 0;
+  cards = cardSpots.map(function(c){
+    return { x:c.x, y:c.y, torch:c.torch, got:false, design: c.torch ? TORCH_DESIGN : nextDesign++ };
+  });
+  enemies = enemySpots.map(function(e){
+    const h = e.kind === 'rat' ? 14 : 10, w = e.kind === 'rat' ? 20 : 16;
+    return { x:e.x, y:e.y - h, w:w, h:h, vx:(e.kind==='rat'?-46:-84), kind:e.kind, dead:0, anim:0 };
+  });
+  loose = []; gateBump = 0;
+  grim.t = 0; grim.vy = 0; grim.drop = false; grim.down = false; grim.onFloor = false; grim.env = null;
+  crushed = false;
+  spider.active = false; spider.burn = 0; spider.char = 0; spider.anim = 0;
+  spider.base = 0; spider.lift = 0; spider.lunge = 0;
+  torch.active = false; torch.t = 0; torch.done = false; torch.phase = 'none'; torch.pt = 0; torch.anim = 0;
+  state = 'play'; clock = 0; boxesGot = 0; cardsGot = 0; hits = 0; bonusPts = 0;
+  resetMusicLevel();
+  coyoteT = 0; bufferT = 0; cutT = 0; endT = 0;
+  input.locked = false;
+}
+
+/* ==========================================================================
+   9. PHYSICS — axis-separated AABB. X first, resolve, then Y, resolve.
+   ========================================================================== */
+function hit(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+// First solid surface at or below (x, fromY). Used to keep the spider on the
+// floor - it is a walking enemy and must not inherit the player's altitude.
+function surfaceBelow(x, fromY) {
+  for (let y = Math.max(0, fromY); y < LEVEL_H + TILE; y += 2) if (pointSolid(x, y)) return y;
+  return GROUND_Y;
+}
+function pointSolid(x, y) {
+  for (let i = 0; i < solids.length; i++) {
+    const s = solids[i];
+    if (x >= s.x && x < s.x + s.w && y >= s.y && y < s.y + s.h) return true;
+  }
+  return false;
+}
+// SHELVES ARE ONE-WAY. A shelf stops a body only from above: moving down, with
+// its feet at or above the shelf's top before this move, and not dropping. So a
+// jump goes up through one, a walk goes through one sideways, and a body with
+// dropT > 0 - the player pressing down on it - falls through. Box stacks and
+// the floor still block from every side. gridCollide in the route checker is
+// the same rule on the character grid: change one, change both.
+function landsOn(e, s, feetBefore, dy) {
+  return dy > 0 && !(e.dropT > 0) && feetBefore <= s.y + 0.01;
+}
+function moveAndCollide(e, dx, dy) {
+  e.x += dx;
+  for (let i = 0; i < solids.length; i++) {
+    const s = solids[i];
+    if (s.oneWay) continue;
+    if (hit(e, s)) { if (dx > 0) e.x = s.x - e.w; else if (dx < 0) e.x = s.x + s.w; e.vx = 0; }
+  }
+  const feetBefore = e.y + e.h;
+  e.y += dy;
+  e.grounded = false;
+  for (let i = 0; i < solids.length; i++) {
+    const s = solids[i];
+    if (s.oneWay && !landsOn(e, s, feetBefore, dy)) continue;
+    if (hit(e, s)) {
+      if (dy > 0) { e.y = s.y - e.h; e.grounded = true; }
+      else if (dy < 0) { e.y = s.y + s.h; }
+      e.vy = 0;
+    }
+  }
+  // Here, not in the callers: the player is moved by updatePlayer, the torch
+  // cutscene and the crush, and a timer each of them had to remember to count
+  // down is a timer one of them would forget. Every frame is one STEP.
+  if (e.dropT > 0) e.dropT -= STEP;
+}
+
+// Is every solid under his feet a shelf? Down on a box stack, or on the floor, or
+// straddling a shelf and a stack, does nothing - there is nothing to fall to.
+function standingOnShelf(e) {
+  const feet = e.y + e.h;
+  let shelf = false;
+  for (let i = 0; i < solids.length; i++) {
+    const s = solids[i];
+    if (e.x + e.w <= s.x || e.x >= s.x + s.w || Math.abs(s.y - feet) > 0.5) continue;
+    if (!s.oneWay) return false;
+    shelf = true;
+  }
+  return shelf;
+}
+function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+/* ==========================================================================
+   10. UPDATE
+   ========================================================================== */
+function damage() {
+  if (player.invuln > 0) return;
+  player.invuln = INVULN; hits++;
+  player.vy = -260; player.vx = -player.face * 190;
+  cam.shake = 6;
+  noise(0.18, 0.10); blip(180, 0.18, 'sawtooth');
+  if (boxesGot > 0) {                       // drop one box; it can be re-grabbed
+    boxesGot--;
+    loose.push({ x:player.x + 9, y:player.y + 10, vx:player.face * -60, vy:-200, t:0 });
+  }
+}
+
+function updatePlayer(dt) {
+  const dir = input.locked ? 0 : ((input.right ? 1 : 0) - (input.left ? 1 : 0));
+  const a = player.grounded ? ACCEL : AIR_ACCEL;
+  if (dir !== 0) {
+    player.vx = clamp(player.vx + dir * a * dt, -MAX_RUN, MAX_RUN);
+    player.face = dir;
+  } else if (player.grounded) {
+    const drop = FRICTION * dt;
+    player.vx = Math.abs(player.vx) <= drop ? 0 : player.vx - Math.sign(player.vx) * drop;
+  }
+
+  // Down on a shelf: fall through it. Coyote time goes with the ground, or the
+  // jump that normally follows stepping off a ledge would pull him straight back
+  // up through the shelf he meant to leave. Held down drops through one shelf
+  // after another; a tap drops through one.
+  if (!input.locked && (input.down || input.downPressed) && player.grounded && standingOnShelf(player)) {
+    player.dropT = DROP_T; player.grounded = false; coyoteT = 0;
+  }
+  input.downPressed = false;
+  coyoteT = player.grounded ? COYOTE : Math.max(0, coyoteT - dt);
+  if (input.jumpPressed) { if (!input.locked) bufferT = BUFFER; input.jumpPressed = false; }
+  else bufferT = Math.max(0, bufferT - dt);
+
+  if (bufferT > 0 && coyoteT > 0) {
+    player.vy = JUMP_V; bufferT = 0; coyoteT = 0;
+    chime(523, 0.35, 0.035);
+  }
+  // Tap to jump: one press gives the whole arc, no hold required. The apex is
+  // still JUMP_V against GRAVITY (82u), so the audit's jump budget is unchanged.
+  if (input.locked && player.vy < JUMP_CUT) player.vy = JUMP_CUT;
+
+  player.vy = Math.min(player.vy + GRAVITY * dt, MAX_FALL);
+  moveAndCollide(player, player.vx * dt, player.vy * dt);
+
+  player.x = clamp(player.x, 0, LEVEL_W - player.w);
+  // exitX is the bay's CENTRE at the camera the player finishes at - the art
+  // is drawn centred on it - so stopping him here stands him in front of the
+  // door rather than inside its frame.
+  if (gateShut() && player.x + player.w > exitX) {
+    if (player.vx > 40 && gateBump <= 0) {          // ran into it: thud and rattle
+      gateBump = 0.3; noise(0.1, 0.05); blip(110, 0.09, 'square', 0.03);
+    }
+    player.x = exitX - player.w;
+    if (player.vx > 0) player.vx = 0;
+  }
+  if (player.grounded && player.y < LEVEL_H) { safeX = player.x; safeY = player.y; }
+  if (player.y > LEVEL_H + 80) {           // fell in a gap: back to the last footing, not the start
+    player.x = spider.active ? chaseStartX : safeX;
+    player.y = (spider.active ? 40 : safeY) - 4;
+    player.vx = 0; player.vy = 0;
+    if (spider.active) resetChase();
+    damage();
+  }
+  if (player.invuln > 0) player.invuln -= dt;
+  // /13 not /26: the run cycle is 8 frames now, so the per-frame rate doubles
+  // to keep the same stride cadence.
+  player.anim += dt * (player.grounded ? Math.abs(player.vx) / 13 : 4);
+}
+
+function updateStomps(dt) { for (let i = 0; i < stomps.length; i++) stomps[i].t += dt; }
+
+function updateEnemies(dt) {
+  // Backwards, because dead enemies are spliced out mid-loop.
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    if (e.dead > 0) {
+      e.dead -= dt;
+      if (e.dead <= 0) enemies.splice(i, 1);   // gone for the rest of the run
+      continue;
+    }
+    e.anim += dt * 8;
+    const nx = e.x + e.vx * dt;
+    const probeX = e.vx > 0 ? nx + e.w + 1 : nx - 1;
+    // turn at a ledge or a wall
+    if (!pointSolid(probeX, e.y + e.h + 3) || pointSolid(probeX, e.y + e.h - 3)) e.vx = -e.vx;
+    else e.x = nx;
+
+    if (hit(player, e)) {
+      const stomping = player.vy > 60 && (player.y + player.h) - e.y < 16;
+      if (stomping) {
+        // He does not bounce off it any more - he drives it into the floor and
+        // keeps falling. vy 0 rather than a small hop, so the landing right
+        // after is his own weight. The concrete keeps the mark, if it WAS
+        // concrete: a rat stomped on a shelf or a box stack just dies.
+        e.dead = 0.35; player.vy = 0; bonusPts += SCORE.stomp;
+        cam.shake = Math.max(cam.shake, 6);
+        // Concrete under it, not just floor height: a rat stomped in mid-air over
+        // a pit is at GROUND_Y too, and there is nothing there to crack.
+        if (Math.abs((e.y + e.h) - GROUND_Y) < 1 && pointSolid(e.x + e.w / 2, GROUND_Y + 2))
+          stomps.push({ x: e.x + e.w / 2, t: 0 });
+        chime(392, 0.5, 0.05); noise(0.14, 0.09);
+      } else damage();
+    }
+  }
+}
+
+function updatePickups(dt) {
+  for (let i = 0; i < boxes.length; i++) {
+    const b = boxes[i]; if (b.got) continue;
+    if (hit(player, { x:b.x - 14, y:b.y - 14, w:28, h:28 })) {
+      b.got = true; boxesGot++;
+      chime(660 + (boxesGot % 6) * 55, 0.9, 0.05);
+    }
+  }
+  for (let i = 0; i < cards.length; i++) {
+    const c = cards[i]; if (c.got) continue;
+    if (hit(player, { x:c.x - 14, y:c.y - 16, w:28, h:32 })) {
+      c.got = true; cardsGot++;
+      // The torch card gets the full-screen splash instead of the slide-in
+      // banner; both at once is two announcements fighting for the top of the
+      // screen. Picked up before the chase, it is just a card, so it banners.
+      const summons = c.torch && spider.active;
+      if (!summons) showCardBanner(c.design);
+      chime(880, 1.5, 0.06);
+      setTimeout(function(){ chime(1320, 1.8, 0.055); }, 90);
+      if (summons) startTorchCutscene();
+    }
+  }
+  for (let i = loose.length - 1; i >= 0; i--) {
+    const l = loose[i];
+    l.t += dt; l.vy += GRAVITY * dt;
+    const probe = { x:l.x - 5, y:l.y - 5, w:10, h:10, vx:0, vy:l.vy };
+    moveAndCollide(probe, l.vx * dt, l.vy * dt);
+    l.x = probe.x + 5; l.y = probe.y + 5;
+    if (probe.grounded) { l.vy = 0; l.vx *= 0.7; }
+    if (l.t > 0.4 && hit(player, { x:l.x - 14, y:l.y - 14, w:28, h:28 })) {
+      loose.splice(i, 1); boxesGot++;
+      chime(720, 0.9, 0.05);
+    }
+  }
+}
+
+// The spider's legs, apart from the chase's rules. updateChase walks it and then
+// tests touch and behind; the crush walks it and tests NOTHING, so it keeps
+// running while Grimace comes down. It used to stand frozen, and the crush only
+// starts once the player has cleared it, so it froze right beside him - under
+// a drop 185 units wide.
+// How fast the spider runs right now. Its own function because the crush has to
+// PREDICT where the spider will be, and a second copy of this formula would be
+// free to drift from the one that actually moves it. Same arithmetic as before:
+// min(1, clock) is the old (clock - 0) / 1, and it is always 1 by the chase.
+function spiderSpeed() {
+  return (132 + Math.min(46, (player.x - chaseStartX) / 60)) * Math.min(1, clock);
+}
+
+// If Grimace were let go this frame, would the spider be clear of his LANDED
+// footprint by the time he got down? Measured to its drawn legs, which hang past
+// its 64-unit box, and with the fall time from the same GRIM_G that drops him.
+// The frame-by-frame fall lands about a frame sooner than the formula, and
+// SPIDER_CLEAR covers that.
+const SPIDER_CLEAR = 8;
+function spiderClearByLanding() {
+  const drop = Math.max(0, (player.y + player.h) - (cam.y - ART.grimace.bh));
+  const t = Math.sqrt(2 * drop / GRIM_G);
+  const legs = (ART.spider.bw - spider.w) / 2;
+  const right = player.x + player.w / 2 + ART.grimace.bw / 2;
+  return spider.x - legs + spiderSpeed() * t >= right + SPIDER_CLEAR;
+}
+
+function walkSpider(dt) {
+  const v = spiderSpeed();
+  const was = spider.x;
+  spider.x += v * dt;
+  const edge = cam.x + SPIDER_EDGE;
+  if (spider.x < edge) spider.x = Math.min(edge, spider.x + v * dt);
+  spider.anim += spider.x - was;          // legs advance with ground covered, drag included
+  // Walk, do not fly. Tracking player.y meant the spider rose with every jump.
+  const spiderGround = surfaceBelow(spider.x + spider.w / 2, spider.y);
+  spider.base += ((spiderGround - spider.h) - spider.base) * 9 * dt;
+  if (spider.lunge > 0) {
+    spider.lunge = Math.max(0, spider.lunge - dt);
+    spider.lift = LUNGE_UP * Math.sin(Math.PI * (1 - spider.lunge / LUNGE_T));
+  } else spider.lift = 0;
+  spider.y = spider.base - spider.lift;
+  if (Math.random() < 0.02) blip(70 + Math.random() * 40, 0.1, 'sawtooth', 0.05);
+}
+
+function updateChase(dt) {
+  if (torch.done) return;                 // spider is dead; never re-trigger the chase
+  if (!spider.active) {
+    if (player.x > chaseTriggerX) {
+      spider.active = true;
+      chaseStartX = chaseTriggerX;
+      // At the left edge of the view, not 240 units back - 240 is past it, so
+      // it used to arrive somewhere the player could not see.
+      spider.x = cam.x + SPIDER_EDGE; spider.y = player.y;
+      spider.base = spider.y; spider.lift = 0; spider.lunge = 0;
+      cam.shake = 10; noise(0.5, 0.14); blip(90, 0.5, 'sawtooth', 0.08);
+    }
+    return;
+  }
+  if (spider.burn > 0) { spider.burn -= dt; return; }
+  if (torch.active) return;
+
+  // The snap: airborne, near, and not already in one. It fires off the player's
+  // jump rather than off its own clock, so it is always aimed at him.
+  if (spider.lunge <= 0 && !player.grounded &&
+      Math.abs((player.x + player.w / 2) - (spider.x + spider.w / 2)) < LUNGE_NEAR) {
+    spider.lunge = LUNGE_T;
+    blip(150, 0.18, 'sawtooth', 0.07); noise(0.12, 0.08);
+  }
+  walkSpider(dt);
+
+  if (hit(player, { x:spider.x, y:spider.y, w:spider.w, h:spider.h })) {
+    player.x = chaseStartX; player.y = 40; player.vx = 0; player.vy = 0;
+    resetChase();
+    hits++; cam.shake = 12; noise(0.4, 0.14);
+  }
+  // Behind it. Tested AFTER the touch above, so clipping it on the way past is a
+  // hit and a respawn in front of it, not a death. NOT WHILE HE IS STILL
+  // FLASHING from one, either: a respawn puts him at chaseStartX and re-places
+  // the spider at the view's near edge, and those two land 166 units apart on
+  // this level but only 4 apart if chaseStartX is ever small enough to clamp the
+  // camera at 0. Invulnerability is exactly that window, so it is the guard.
+  else if (player.invuln <= 0 && player.x + player.w < spider.x) startCrush();
+}
+
+// Put the chase back together after a respawn. Two things went wrong without
+// this. The camera lerps at 0.16, so a 220-unit teleport left it looking at
+// where the player used to be for a third of a second, and a spider placed
+// relative to the PLAYER spent that time outside the view. And falling in a
+// pit was worse than being caught: the spider kept the x it had, which is
+// AHEAD of the respawn point, so it walked off to the right and the chase
+// quietly stopped being one. Snap the camera to the player, then put the
+// spider back on the near edge of it, on the floor.
+function resetChase() {
+  cam.x = clamp(player.x + player.w / 2 - VIEW_W / 2, 0, LEVEL_W - VIEW_W);
+  spider.x = cam.x + SPIDER_EDGE;
+  spider.y = surfaceBelow(spider.x + spider.w / 2, 0) - spider.h;
+  spider.base = spider.y; spider.lift = 0; spider.lunge = 0;
+}
+
+// He starts above the TOP OF THE VIEW rather than at a fixed height. VIEW_H
+// runs 200-420 depending on the device, so a constant would be a long wait on
+// a tall screen and already on top of you on a short one.
+function startCrush() {
+  state = 'crushed'; input.locked = true;
+  grim.drop = false; grim.down = false; grim.onFloor = false; grim.t = 0; grim.vy = 0; grim.env = null;
+}
+
+// Three beats. WAIT: the player is almost always in the air here - jumping clean
+// over the spider is the only way behind it - so he finishes his fall first,
+// under the same gravity and collision as any fall, with no input and no
+// respawn. DROP: the moment he touches down, Grimace is let go from above the
+// top of the view. DOWN: the slam, the cracks, the fart FART_AT later, and the
+// sheet once the fart is over - 2.2s after he lands.
+// Over a pit there is nothing to touch down on, so the player is stopped just
+// below the view and Grimace follows him in: a slam you hear, no cracks.
+function updateCrush(dt) {
+  grim.t += dt;
+  walkSpider(dt);                       // it runs on; it does not get crushed too
+  if (!grim.drop) {
+    player.vy = Math.min(player.vy + GRAVITY * dt, MAX_FALL);
+    moveAndCollide(player, player.vx * dt, player.vy * dt);
+    // updatePlayer's clamp, which this copy of its fall first left out. Normal
+    // play cannot reach it - the chase starts at x=3360 - but a test with the
+    // spider near x=0 walked the player straight off the level and into the
+    // pit branch, and a copy of the physics should not quietly differ.
+    player.x = clamp(player.x, 0, LEVEL_W - player.w);
+    const fell = player.y > LEVEL_H + 40;
+    if (fell) { player.y = LEVEL_H + 40; player.vy = 0; }
+    if (player.grounded || fell) player.vx = 0;
+    // Down, AND the spider out from under him by the time he lands - it runs on,
+    // and it started right beside the player. Caught mid-jump that is already
+    // true on touchdown, measured 67 units clear; caught standing it was 13.8
+    // units UNDER his right edge, so he holds for exactly the beat the spider
+    // needs. 2.5s is a backstop against a spider that is not moving, which play
+    // cannot produce.
+    if ((player.grounded || fell) && (spiderClearByLanding() || grim.t > 2.5)) {
+      grim.drop = true; grim.t = 0; grim.vy = 0;
+      // Snapped to a canvas pixel: the cracks are cut from a strip centred here,
+      // and a fractional centre would blur every column of it.
+      grim.x = Math.round((player.x + player.w / 2) * S) / S;
+      grim.y = cam.y - ART.grimace.bh;
+      blip(300, 0.5, 'sawtooth', 0.05); noise(0.3, 0.2);
+    }
+  } else if (!grim.down) {
+    grim.vy += GRIM_G * dt;
+    grim.y += grim.vy * dt;
+    if (grim.y >= player.y + player.h) {              // arrived
+      grim.y = player.y + player.h; grim.down = true; grim.t = 0;
+      grim.onFloor = Math.abs(grim.y - GROUND_Y) < 0.5;
+      noise(0.6, 0.3); blip(55, 0.8, 'square', 0.09);
+    }
+  } else if (!grim.env) {
+    if (grim.t >= FART_AT) grim.env = fart();
+  } else if (grim.t > FART_AT + fartQuiet + 0.45) {  // the sheet waits for the loud part
+    crushed = true;
+    showScore();
+  }
+}
+
+/* The torch-card cutscene, as a phase machine:
+
+     pause   the splash is up and the whole game holds still, clock included
+     poof    he appears inside the cloud from the last frame of his dab
+     ignite  torch cold at his chest, sweeps up as it lights, held overhead
+     run     charges left across the screen to the spider
+     burn    braced, flame jet on the spider until it crumples
+     back    flame out, runs back to the player
+     shake   the handshake
+     dab     hit, exhale, and gone into the same cloud he came in on
+
+   Each phase owns its movement and its pose. It used to be a stack of cutT
+   thresholds with position checks woven through, and two runs whose length
+   depends on where the spider happens to be do not fit that shape. */
+// World units of ground per spider walk frame. Its true stride is tiny next to
+// its speed - one full 8-frame cycle covers 10.4 units of real travel while it
+// chases at 132-178/s - so matching the stride exactly would cycle the legs at
+// over 100fps. The manifest's longest legal stride only reaches 12.4 units, so
+// the feet slide whatever we do; 7.5 puts the legs at 18-24fps, which reads as
+// a hard skitter rather than a strobe.
+const SPIDER_STRIDE = 7.5;
+// How far in from the left edge of the view the spider is allowed to fall.
+// It tops out at 151u/s by the end of the level and MAX_RUN is 160, so a
+// player who just holds right outruns it every time - and it spawned 240 units
+// back, which is already 58 beyond the edge, so for most of the chase there was
+// nothing behind you to see. This drags it forward instead of speeding it up:
+// while it is off frame it closes at double speed, which always beats 160, and
+// the moment it reaches the edge the drag stops and it is back to its own pace.
+// Rate-limited rather than snapped so the gap after a hit is spent, not erased.
+// 16, not 6: this runs BEFORE the camera moves, so it clamps against where the
+// view was last frame, and at 6 the measured worst case still clipped 9 units
+// off the spider's left. Measured over 705 frames of chase at 16: left edge
+// never crosses the view at all, right edge never passes the middle.
+//
+// IT IS ALSO WHAT SETS THE PHONE'S ZOOM, through the DAYLIGHT between the two:
+// (VIEW_W/2 - 10) less (SPIDER_EDGE + 64), because the camera centres the
+// player and this pins the spider. 102 units at VIEW_W 384, and it falls with
+// the view. Measured on 41 layouts: 102, 86 and 70 all finish 41/41 at 0.2
+// hits; 62 drops to 40/41 at 3.0; and 54 - VIEW_W 288 with this at 16 -
+// collapses to 37/41 at 14.4, one seed taking 111 hits at one spot, the same x
+// every time, because the bot stalls at an obstacle and there is no longer room
+// to stall in. It is a CLIFF, not a slope, and the lunge has nothing to do with
+// it: 288 with LUNGE_NEAR at 0 measures identically.
+// So VIEW_W_PHONE is 320, where the daylight is 70 and this can stay at 16 -
+// 201/201 at 0.4 hits over 200 seeds, the wide view's own number, with the
+// whole spider on the screen. 288 was shipped for one commit with this at -16,
+// which bought the daylight back by hanging the spider's back quarter off the
+// left edge; being able to see the thing chasing you is worth more than 8
+// pixels of character.
+const SPIDER_EDGE = 16;
+const TORCH_RUN    = 200;   // world units/s, both runs
+// World units per run frame: a 6-frame cycle per 69u. With no slip at all the
+// planted foot says 7.7u/frame - 39fps of legs at this speed, a blur. Pinning
+// the lowest foot to the ground removes the flight phase a real sprinter covers
+// with no foot down, so a little glide here is that flight, not a bug.
+const TORCH_STRIDE = 11.5 * TORCH_K;
+// torch.x = player.x - SHAKE_GAP. Measured, not guessed. His contact hand -
+// frame 2, palm down - ends 27.2u right of his centre in the sheet's own scale,
+// 27.2 * TORCH_K here, at 50.9u up: 35.0u in the game. The player's frame 12
+// holds his palm UP, fingertips 15.3u in front of his centre (player.x - 5.3)
+// with the palm's surface near 34u. At this gap torch guy's hand covers the
+// player's palm from fingertips to wrist and overlaps its surface by one to
+// three units, which is contact once both outlines are drawn - checked on
+// screen, not only in this arithmetic.
+//
+// Height was the part no gap could fix. At the old 41.1u his hand met the
+// player's 41.0u exactly - they were the same height. At 70% that became 28.3u
+// against 41.0, hand to hip. His shoulder now goes up 40 degrees (make_torchguy
+// shake_pose) and the player's arm comes down to sh 63 (rig_export frame 12):
+// the shorter man reaches up, the taller reaches down. Neither alone was
+// enough - his whole arm straight up only reaches 39.6u.
+const SHAKE_GAP    = 27.2 * TORCH_K + 0.5;
+// Inferno torch muzzle, from his centre and feet - the tip of the jet the
+// sprite itself draws, which is where the particles pick up.
+const MUZZLE       = { x: -35 * TORCH_K, y: -45 * TORCH_K };
+const TC = { pause: 2.0, poof: 0.6, cold: 0.35, sweep: 0.15, raise: 0.5,
+             burn: 1.3, smack: 0.42, shake: 1.15, hit: 0.82, exhale: 0.30, cloud: 1.15 };
+
+function torchPhase(p) { torch.phase = p; torch.pt = 0; }
+
+function startTorchCutscene() {
+  state = 'cutscene'; cutT = 0; input.locked = true;
+  // PARK THE SPIDER WHERE THE CHASE PARKS IT, which is in frame by
+  // construction. It chases at the player's heels, so it has to go back a long
+  // way or the torch guy's mark lands on top of him and the two sprites
+  // overlap - but the flat 190 units this used to use was measured against a
+  // player who sits VIEW_W/2 from the left edge, and VIEW_W is not a constant
+  // any more. 190 behind him is 8 units OFF the left edge at VIEW_W 384 and 40
+  // off at 320, so the inferno - the one moment the spider is the thing being
+  // looked at - played out with a quarter to two thirds of it past the edge.
+  // SPIDER_EDGE from the view is where the chase held it all along.
+  // A snap rather than a slide, and free: showTorchSplash() covers the screen
+  // on this very frame and holds it for TC.pause.
+  spider.x = cam.x + SPIDER_EDGE;
+  // And stand it on whatever is under the new spot. Nothing re-grounds it
+  // during the cutscene - updateChase does not run in this state - so a move
+  // without this left it burning in the air, or sunk, wherever the ground it
+  // came from was a different height.
+  spider.y = surfaceBelow(spider.x + spider.w / 2, 0) - spider.h;
+  spider.base = spider.y; spider.lift = 0; spider.lunge = 0;
+  // He appears just right of the player and charges left, past him, to the
+  // spider. Appearing between them left a run of ~55u - a fifth of a second,
+  // too short for a run cycle to register at all.
+  torch.x = player.x + player.w + 36;
+  // The floor under the player, not the player's feet: the card is often
+  // grabbed mid-jump, and he would have appeared standing on air. Snapped to
+  // the tile top, because surfaceBelow samples every 2u and returns the first
+  // solid sample - up to 2u INTO the floor, so he stood sunk into it.
+  torch.y = Math.floor(surfaceBelow(player.x + player.w / 2, player.y + player.h - 1) / TILE) * TILE;
+  // His inferno mark: beside the spider, clear of the player - and standing on
+  // something. Close enough that the jet the sprite draws ends 5u inside the
+  // spider, which is what -5 - MUZZLE.x says; written that way rather than as
+  // a measured 30 so shrinking him walks him in instead of leaving him firing
+  // short. At this level's torch card the spider gets pinned on the lip of a
+  // two-tile pit, and the plain mark put him braced in a planted lunge over
+  // thin air, so step right until both planted feet have floor - they sit at
+  // -15 and +17 of his own scale from his centre in the inferno frames.
+  let mark = spider.x + spider.w - 5 - MUZZLE.x;
+  while (mark < player.x - SHAKE_GAP &&
+         !(pointSolid(mark - 15 * TORCH_K, torch.y + 1) &&
+           pointSolid(mark + 17 * TORCH_K, torch.y + 1))) mark += 2;
+  torch.burnX = mark;
+  torch.active = false; torch.anim = 0;
+  torchPhase('pause');
+  showTorchSplash(true);
+  chime(1046, 2.0, 0.07);
+}
+
+function updateCutscene(dt) {
+  cutT += dt; torch.pt += dt;
+  if (torch.phase === 'pause') {
+    if (torch.pt >= TC.pause) {
+      showTorchSplash(false);
+      torch.active = true; torchPhase('poof');
+      noise(0.35, 0.09);                                     // the puff he arrives in
+    }
+    return;
+  }
+  player.vx *= 0.86;
+  player.vy = Math.min(player.vy + GRAVITY * dt, MAX_FALL);
+  moveAndCollide(player, player.vx * dt, player.vy * dt);
+
+  const burnX  = torch.burnX;                // set once at the start: the spider stays put
+  const shakeX = player.x - SHAKE_GAP;
+  switch (torch.phase) {
+    case 'poof':
+      if (torch.pt >= TC.poof) torchPhase('ignite');
+      break;
+    case 'ignite':
+      if (torch.pt >= TC.cold && torch.pt - dt < TC.cold) {   // it lights
+        noise(0.22, 0.07); blip(240, 0.14, 'sawtooth', 0.035);
+      }
+      if (torch.pt >= TC.cold + TC.sweep + TC.raise) torchPhase('run');
+      break;
+    case 'run':
+      torch.x = Math.max(burnX, torch.x - TORCH_RUN * dt);
+      torch.anim += TORCH_RUN * dt;
+      if (torch.x <= burnX) torchPhase('burn');
+      break;
+    case 'burn':
+      // The jet is art/flame.png now, drawn at the muzzle in render(). What
+      // was here was five flat squares a frame in three hard colours, thrown
+      // 60-190 units because the drawn flame only covered 15 of the 64 units
+      // the spider is wide. They were the last procedural effect on screen
+      // besides the truck.
+      if (Math.random() < 0.4) noise(0.07, 0.06);
+      spider.burn = 1; cam.shake = 4;
+      spider.char = clamp((torch.pt - 0.5) / 0.8, 0, 1);    // crumples out by the end of the burn
+      if (torch.pt >= TC.burn) torchPhase('back');
+      break;
+    case 'back':
+      torch.x = Math.min(shakeX, torch.x + TORCH_RUN * dt);
+      torch.anim += TORCH_RUN * dt;
+      if (torch.x >= shakeX) torchPhase('shake');
+      break;
+    case 'shake':
+      // One smack, not a pumped handshake: hand up for TC.smack, then down on
+      // the player's palm and held there. The sound is the contact, so it fires
+      // on the crossing rather than every frame after it.
+      if (torch.pt >= TC.smack && torch.pt - dt < TC.smack) {
+        noise(0.06, 0.10); blip(180, 0.08, 'square', 0.03);
+      }
+      if (torch.pt >= TC.shake) torchPhase('dab');
+      break;
+    case 'dab':
+      if (torch.pt >= TC.hit + TC.exhale + TC.cloud) {
+        noise(0.3, 0.07);                                    // gone, same puff
+        spider.active = false; torch.active = false; torch.done = true;
+        noise(0.8, 0.05);                                    // the unit opening, off screen
+        torchPhase('none');
+        state = 'play'; input.locked = false;
+        chime(784, 1.6, 0.06); setTimeout(function(){ chime(1176, 2.2, 0.06); }, 120);
+      }
+      break;
+  }
+}
+
+// Which torchguy frame to draw, whether to mirror it, and at what opacity.
+// Facing is per frame and is set by the drawing, not by the scene: run and
+// inferno are drawn facing LEFT (at the spider) so they draw straight; the
+// return run mirrors the flame-out run frames to face right; the handshake is
+// drawn facing RIGHT (at the player). See the FRAMES table in make_torchguy.py.
+function torchGuyPose() {
+  const t = torch.pt, runF = Math.floor(torch.anim / TORCH_STRIDE) % 6;
+  switch (torch.phase) {
+    case 'poof':   return { f:5, flip:false, a:Math.min(1, t / 0.2) };           // the cloud rolls in
+    case 'ignite': return { f: t < TC.cold ? 6 : t < TC.cold + TC.sweep ? 7 : 0, flip:false };
+    case 'run':    return { f:8 + runF, flip:false };
+    case 'burn':   return { f: Math.floor(t * 12) % 2 ? 14 : 1, flip:false };    // jet flicker
+    case 'back':   return { f:16 + runF, flip:true };
+    case 'shake':  return { f: t < TC.smack ? 15 : 2, flip:false };             // up, then down once
+    case 'dab':
+      if (t < TC.hit) return { f:3, flip:false };                                // takes the hit
+      if (t < TC.hit + TC.exhale) return { f:4, flip:false };                    // exhales
+      return { f:5, flip:false, a:Math.min(1, (TC.hit + TC.exhale + TC.cloud - t) / 0.35) };
+  }
+  return { f:6, flip:false };
+}
+
+// The player's half of the handshake: frame 12, hand out, turned to face him.
+function playerShaking() { return state === 'cutscene' && torch.phase === 'shake'; }
+
+function computeScore() {
+  const boxPts  = boxesGot * SCORE.box;
+  const cardPts = cardsGot * SCORE.card;
+  // A run that ended under Grimace banks no time: it did not finish early, it
+  // did not finish. Otherwise being crushed in the first seconds paid the most.
+  const timePts = crushed ? 0 : Math.max(0, Math.round((PAR_TIME - clock) * SCORE.perSecond));
+  const cleanPts = (hits === 0 && !crushed) ? SCORE.clean : 0;   // being crushed is not clean
+  finalScore = boxPts + cardPts + timePts + cleanPts + bonusPts;
+  // ceil, so 0.90 of 42 is 38 and not 37: a fraction that lands between two
+  // boxes has to round AWAY from the player, or the bar sits below the number
+  // printed on the sheet.
+  grade = 'C';
+  for (let i = 0; i < GRADES.length; i++) {
+    const g = GRADES[i];
+    if (boxesGot >= Math.ceil(g.boxes * TOTAL_BOXES) &&
+        cardsGot >= Math.ceil(g.cards * TOTAL_CARDS) &&
+        hits <= g.hits) { grade = g.letter; break; }
+  }
+  return { boxPts, cardPts, timePts, cleanPts };
+}
+
+function update(dt) {
+  if (state === 'score') return;
+
+  if (state === 'crushed') { updateCrush(dt); updateCamera(dt); return; }
+
+  if (state === 'ending') {
+    endT += dt;
+    player.vx = 120; player.face = 1;
+    player.vy = Math.min(player.vy + GRAVITY * dt, MAX_FALL);
+    moveAndCollide(player, player.vx * dt, player.vy * dt);
+    if (endT > 1.6) showScore();
+    cam.x = clamp(player.x + player.w/2 - VIEW_W/2, 0, LEVEL_W - VIEW_W);
+    const mY = LEVEL_H - VIEW_H;
+    cam.y = mY <= 0 ? mY : clamp(player.y + player.h/2 - VIEW_H * 0.42, 0, mY);
+    return;
+  }
+
+  // The splash is a pause, so it pauses everything: no clock, no pickups, no
+  // camera. Only the splash timer inside updateCutscene moves.
+  if (state === 'cutscene' && torch.phase === 'pause') { updateCutscene(dt); return; }
+
+  clock += dt;
+
+  if (state === 'cutscene') { updateCutscene(dt); }
+  else {
+    updatePlayer(dt);
+    updateEnemies(dt);
+    updateChase(dt);
+  }
+  updatePickups(dt);
+  updateStomps(dt);
+
+  if (gateBump > 0) gateBump -= dt;
+  if (state === 'play' && !gateShut() && player.x > exitX) { state = 'ending'; endT = 0; input.locked = true; }
+
+  updateCamera(dt);
+}
+
+// Follow the player and wind any shake down. Its own function because the crush
+// needs it as well: that state used to return from update() before this ran,
+// which froze the camera where the player jumped from and froze cam.shake at
+// 22 - measured, still 22 five seconds after the sheet came up, so the screen
+// jittered behind CRUSHED until RUN IT BACK. And with the player now finishing
+// his fall before Grimace drops, a frozen camera let him drift off the left
+// edge first, so the whole thing landed out of view.
+function updateCamera(dt) {
+  const target = clamp(player.x + player.w/2 - VIEW_W/2, 0, LEVEL_W - VIEW_W);
+  cam.x += (target - cam.x) * 0.16;
+  const maxY = LEVEL_H - VIEW_H;         // negative when the view is taller than the level
+  if (maxY <= 0) cam.y = maxY;           // floor pinned to the bottom, ceiling fills above
+  // 0.42, not 0.58: this anchor decides whether an ordinary jump MOVES the
+  // camera. Pinned at the bottom the view starts at LEVEL_H - VIEW_H, and the
+  // target only lifts off that once VIEW_H * (1 - k) falls under 134.5 - how
+  // far a floor jump's apex is above the bottom of the level. At 0.58 with
+  // VIEW_H 240 that is 100.8 against 134.5, so every jump from flat ground
+  // dragged the camera up some 30 units and let it fall back. At 0.42 it is
+  // 139.2 and the camera holds still until the player actually climbs.
+  else cam.y += (clamp(player.y + player.h/2 - VIEW_H * 0.42, 0, maxY) - cam.y) * 0.10;
+  if (cam.shake > 0) cam.shake = Math.max(0, cam.shake - dt * 22);
+  // THE CUTSCENE MUST NOT SCROLL PAST THE SPIDER. It is the thing being looked
+  // at for the whole inferno, and parking it in frame when the card is grabbed
+  // is not enough on its own: the player keeps drifting right for a moment
+  // after that (vx decays 0.86 a frame, ~19 units), and the camera was already
+  // lagging him by ~17, so the view carried ~33 units on and left 17 of the
+  // spider's 64 past the left edge by the time the jet lit - measured, on all
+  // 41 layouts and at both view widths. This holds the camera where the park
+  // put it. It can only ever stop the view moving RIGHT, never pull it left:
+  // at the park spider.x - SPIDER_EDGE IS cam.x.
+  if (state === 'cutscene')
+    cam.x = clamp(Math.min(cam.x, spider.x - SPIDER_EDGE), 0, LEVEL_W - VIEW_W);
+}
+
+/* ==========================================================================
+   11. PROCEDURAL PLACEHOLDER ART
+       Every one of these is replaced the moment the matching PNG loads.
+   ========================================================================== */
+function px(x, y, w, h, col) { ctx.fillStyle = col; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
+
+// Placeholder drawn in CANVAS PIXELS (~60 x 171 at S=3), not in world units.
+// That is the same budget art/player.png gets. Drawing in world units capped
+// every feature at a 3px block and used about 5% of the available pixels —
+// the engine was never the limit on character detail.
+// Origin is feet-centre, facing right; the caller mirrors for left.
+function drawHeroHD(phase, airborne, rising) {
+  const q = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
+  const K='#17171b', DK='#0d0d10', TEE='#1e1e25', SK='#d2a07c', SH='#b0805c',
+        PA='#6b675c', PS='#56534a', RD='#b8362a', PP='#e8e2d6', HR='#241c18';
+
+  let a, b, lift;
+  if (airborne) { a = rising ? -12 : -6; b = rising ? 12 : 8; lift = rising ? 12 : 5; }
+  else { const sw = Math.sin(phase) * 11; a = -sw; b = sw; lift = 0; }
+
+  // back leg
+  q(-11 + a, -76, 19, 58, PS);
+  q(-13 + a, -22, 25, 15, DK);
+  q(-13 + a, -7,  26, 7,  PP);
+  // front leg + cargo pocket
+  q(-9 + b, -76, 20, 58 - lift, PA);
+  q(-7 + b, -62, 14, 23, PS);
+  q(-7 + b, -41, 14, 2, '#4c493f');
+  q(-11 + b, -22 - lift, 26, 15, K);
+  q(-11 + b, -22 - lift, 26, 3, '#34343c');
+  q(-11 + b, -7  - lift, 27, 7,  PP);
+
+  // torso
+  q(-20, -128, 42, 52, TEE);
+  q(-22, -126, 6, 46, '#111116');          // back fold
+  q(-20, -128, 42, 4, '#282830');          // collar
+  q(2, -114, 15, 27, RD);                  // shirt graphic
+  q(5, -108, 5, 14, PP);
+  q(5, -91, 10, 3, PP);
+  q(-20, -80, 42, 5, '#0f0f13');           // hem
+  q(-19, -79, 39, 7, '#3b382f');           // belt
+  q(-2, -79, 7, 7, '#8f8460');             // buckle
+
+  // forward arm
+  const sa = airborne ? -8 : Math.sin(phase + Math.PI) * 9;
+  q(-6 + sa, -126, 17, 29, TEE);           // short sleeve
+  q(-6 + sa, -99, 17, 3, '#111116');       // cuff
+  q(-4 + sa, -96, 14, 22, SK);             // forearm
+  q(-5 + sa, -78, 15, 10, SH);             // hand
+
+  // head
+  q(-14, -156, 31, 28, SK);
+  q(17, -147, 8, 9, SK);                   // nose
+  q(-16, -152, 6, 17, HR);                 // hair at the nape
+  q(-3, -144, 6, 7, SH);                   // ear
+  q(2, -131, 14, 3, SH);                   // jaw shadow
+  q(-3, -150, 25, 9, DK);                  // sunglasses
+  q(1, -148, 7, 3, '#414852');             // lens glint
+  q(-14, -148, 11, 3, DK);                 // temple arm
+
+  // cap
+  q(-16, -171, 36, 17, K);
+  q(-16, -171, 36, 4, '#282830');
+  q(16, -159, 22, 6, K);                   // brim
+  q(16, -159, 22, 2, '#282830');
+  q(-2, -169, 7, 5, '#30303a');            // panel seam
+}
+
+function drawRat(e) {
+  const x = Math.round(e.x - cam.x), y = Math.round(e.y);
+  const bob = Math.floor(e.anim) % 2;
+  px(x, y + 2 + bob, 20, 10, '#6b5f55');
+  px(x + (e.vx > 0 ? 15 : 1), y + bob, 5, 5, '#7d7066');
+  px(x + (e.vx > 0 ? 18 : 1), y + 2 + bob, 2, 2, C.hot);
+  px(x + (e.vx > 0 ? -4 : 20), y + 7 + bob, 5, 2, '#8a7d72');
+}
+function drawRoach(e) {
+  const x = Math.round(e.x - cam.x), y = Math.round(e.y);
+  const bob = Math.floor(e.anim) % 2;
+  px(x, y + 2, 16, 8, '#4a3524');
+  px(x + 2, y + 3, 12, 3, '#6b4c33');
+  px(x + (e.vx > 0 ? 14 : -3), y + bob, 4, 2, '#3a2a1c');
+}
+function drawSpider(sx, sy, burning) {
+  const bob = Math.sin(clock * 9) * 2;
+  const body = burning ? (Math.floor(clock * 22) % 2 ? C.hot : C.spider) : C.spider;
+  for (let i = 0; i < 4; i++) {                              // legs
+    const lx = sx + 6 + i * 12, sw = Math.sin(clock * 11 + i) * 4;
+    px(lx, sy + 8 + bob, 3, 22 + sw, C.spiderHi);
+    px(lx + 26, sy + 8 + bob, 3, 22 - sw, C.spiderHi);
+  }
+  px(sx + 8, sy + 6 + bob, 38, 24, body);                    // abdomen
+  px(sx + 12, sy + 10 + bob, 30, 8, C.spiderHi);
+  px(sx + 40, sy + 12 + bob, 14, 14, body);                  // head
+  px(sx + 46, sy + 15 + bob, 3, 3, C.hot);                   // eyes
+  px(sx + 51, sy + 15 + bob, 3, 3, C.hot);
+}
+function drawTorchGuy(x, y) {
+  const L = x - 10, T = y - 40;
+  px(L + 2, T + 36, 16, 4, C.ink);
+  px(L + 4, T + 22, 12, 15, '#3f4d5c');                      // work pants
+  px(L + 3, T + 9, 14, 14, '#c9803a');                       // hi-vis jacket
+  px(L + 3, T + 14, 14, 3, C.paper);                         // reflective stripe
+  px(L + 5, T + 1, 11, 9, C.skin);
+  px(L + 4, T, 13, 4, '#f2c744');                            // hard hat
+  px(L - 8, T + 16, 10, 4, '#8f9499');                       // torch body
+  px(L - 12, T + 17, 5, 2, '#5f6469');                       // nozzle
+}
+function drawBox(x, y, s) {
+  const h = s || 26;
+  px(x - h/2, y - h/2, h, h, C.card1);
+  px(x - h/2, y - h/2, h, 3, C.card2);
+  px(x - h/2, y + h/2 - 3, h, 3, C.card3);
+  px(x - 2, y - h/2, 4, h, C.card2);                         // tape seam
+}
+function drawCard(x, y, torchCard) {
+  const w = Math.abs(Math.cos(clock * 3)) * 14 + 2;
+  px(x - w/2, y - 11, w, 22, torchCard ? '#f2c744' : C.paper);
+  if (w > 8) {
+    px(x - w/2 + 2, y - 8, w - 4, 8, torchCard ? C.hot : C.trim);
+    px(x - w/2 + 2, y + 2, w - 4, 2, torchCard ? '#8c3a10' : '#9aa0a6');
+  }
+}
+
+/* ==========================================================================
+   12. RENDER
+   ========================================================================== */
+const BG_PARALLAX = 0.55;              // the wall scrolls at this fraction of the camera
+// Where the centre of the open bay sits in wall space. Solving
+//     open_x - cam*P = exitX - cam
+// at the camera's final resting position (it clamps against the end of the
+// level) puts the doorway over the exit as the player walks into it. Anchored
+// on the exit, not on TRUCK_X: at that camera the truck's own world position is
+// already past the right edge of the screen, so a bay pinned to it never shows.
+// VIEW_W is in it and VIEW_W is picked per screen shape, so this is worked out
+// again on every resize() rather than once at load.
+function openBayX() { return exitX - (LEVEL_W - VIEW_W) * (1 - BG_PARALLAX); }
+let BG_OPEN_X = openBayX();
+
+let pitShade = null;               // built on first use; see the pits, in render()
+const bgSeedDoors = [];
+for (let i = 0; i < 24; i++) bgSeedDoors.push(i * 300 + 60);
+
+function render() {
+  ctx.setTransform(S, 0, 0, S, 0, 0);   // canvas space
+  const shake = cam.shake > 0 ? (Math.random() - 0.5) * cam.shake : 0;
+  // Grimace's landing is a SLAM, not the game's usual sideways jitter: a hit
+  // knocks the view aside, a landing this heavy drops it. A damped vertical
+  // bounce - 10 units times exp(-4.5t), which draws 8.3 at most because its
+  // first peak falls between frames, and is 10% of that by 0.5s - with a little
+  // random sideways under the same envelope. It is a function of grim.t, which
+  // stops advancing once the sheet is up, and it is over by 1.3s, so unlike
+  // cam.shake it has nothing that can be left running. It decayed at 7/s, 3% by
+  // 0.5s; at 4.5 it is still bouncing when the fart takes over at FART_AT.
+  // Then the RUMBLE: jitter both ways, up to 3.5 units, scaled frame by frame by
+  // the fart's own loudness (grim.env), so it swells, sputters and stops with
+  // the sound. It is keyed off grim.t as well, so the same freeze ends it.
+  let slamX = 0, slamY = 0;
+  if (grim.down && (state === 'crushed' || crushed)) {
+    if (grim.t < 1.3) {
+      const e = Math.exp(-grim.t * 4.5);
+      slamY = Math.sin(grim.t * 55) * 10 * e;
+      slamX = (Math.random() - 0.5) * 7 * e;
+    }
+    const k = grim.env ? grim.env[Math.floor((grim.t - FART_AT) * 60)] || 0 : 0;
+    slamX += (Math.random() - 0.5) * 7 * k;
+    slamY += (Math.random() - 0.5) * 7 * k;
+  }
+  const cx = Math.round(cam.x + shake + slamX);
+  const cy = Math.round(cam.y + slamY);
+
+  // --- backdrop in CANVAS space: wall and ceiling always fill the view
+  px(0, 0, VIEW_W, VIEW_H, C.wall);
+  // Pinned to the top of the SCREEN, which is why it only stays as the
+  // fallback: VIEW_H runs 200-420 against a 336-unit level, so a ceiling here
+  // sits at a different height on every device. bg_upper.png is anchored to
+  // the level instead - see the wall block below.
+  if (!(ART.bgUpper.ready && ART.bgClosed.ready)) {
+    px(0, 0, VIEW_W, 30, C.ceil);
+    for (let i = 0; i < 9; i++) px(i * 48 + 6, 30, 6, 14, C.ceil);   // roof trusses
+    px(0, 44, VIEW_W, 3, C.deep);                                    // conduit run
+    for (let i = -1; i < 6; i++) {                                   // fluorescent fixtures
+      const lx = Math.round(((i * 150 + 40 - cx * 0.8) % 750 + 750) % 750) - 150;
+      px(lx + 20, 30, 2, 12, C.ceil);                                // hanger cords
+      px(lx + 52, 30, 2, 12, C.ceil);
+      px(lx, 42, 74, 6, C.lamp);
+      px(lx + 4, 48, 66, 3, 'rgba(238,243,247,.18)');
+    }
+    for (let i = 0; i < 8; i++) {                                    // wall panel seams
+      const sx = Math.round(((i * 96 - cx * 0.55) % 768 + 768) % 768) - 96;
+      px(sx, 47, 1, VIEW_H, C.wallHi);
+    }
+  }
+
+  // --- everything below is in WORLD space and scrolls with the camera
+  ctx.setTransform(S, 0, 0, S, 0, -cy * S);
+
+  // --- the wall. Drawn storage-unit art, tiled the length of the level at the
+  // same 0.55 parallax the blocked-in doors used, with the open bay dropped on
+  // top of one tile at the end. Each tile's top row IS C.wall (baked in by
+  // tools/make_bg.py), so the fill above joins it with no seam, and its own
+  // wainscot replaces the blue trim line.
+  const bgc = ART.bgClosed;
+  if (bgc.ready) {
+    const bw = bgc.img.width / S, bh = bgc.img.height / S;
+    const off = cx * BG_PARALLAX;
+    // Both edges of every tile rounded to CANVAS PIXELS, and the tile drawn
+    // exactly that wide. The tiles are 159.33 units, and rounding only the
+    // left edge to a whole unit - as this used to - started every other tile
+    // up to a unit late: a two-pixel gap down that seam, with the flat wall
+    // fill showing through as a light line from the roof to the floor.
+    const edgeX = function (i, w) { return Math.round((i * w - off) * S) / S; };
+    // Everything above the doors: roof, then the ceiling strip. Same width
+    // and parallax as the door tiles and the same i * width - off grid, so the
+    // strip's pillars stand over the doors' grey columns, and its bottom edge
+    // sits on the doors' top edge - both rows are WALL, so there is no seam.
+    // It reaches 84 units above the level. Nothing shows that now - VIEW_H_MAX
+    // is under the level's own height - so the top of that art is spare.
+    const bgu = ART.bgUpper;
+    if (bgu.ready) {
+      const uw = bgu.img.width / S, uh = bgu.img.height / S;
+      for (let i = Math.floor(off / uw); i * uw - off < VIEW_W; i++) {
+        const a = edgeX(i, uw);
+        ctx.drawImage(bgu.img, a, GROUND_Y - bh - uh, edgeX(i + 1, uw) - a, uh);
+      }
+    }
+    for (let i = Math.floor(off / bw); i * bw - off < VIEW_W; i++) {
+      const a = edgeX(i, bw);
+      ctx.drawImage(bgc.img, a, GROUND_Y - bh, edgeX(i + 1, bw) - a, bh);
+    }
+    const bgo = ART.bgOpen;
+    const ox = Math.round(BG_OPEN_X - bw / 2 - off);
+    if (bgo.ready && !gateShut()) {
+      // Pinned so the open doorway sits exactly behind the truck once the
+      // camera has run up against the end of the level. At parallax the wall
+      // drifts against the world, so this can only line up at one camera
+      // position - that one, the one the player finishes at.
+      if (ox > -bw && ox < VIEW_W) ctx.drawImage(bgo.img, ox, GROUND_Y - bh, bw, bh);
+    }
+    // The padlock, on the door the bay will replace. Drawn in WALL space off
+    // the same `off` as the tiles, not in world space: the wall slides against
+    // the world at parallax, and a world-space lock slid 43 units across the
+    // door over the last stretch of the approach instead of hanging on it.
+    if (gateShut() && ox > -bw && ox < VIEW_W) {
+      const lx = Math.round(ox + bw / 2), ly = GROUND_Y - 58;
+      px(lx - 11, ly - 3, 22, 6, C.deep);              // hasp across the slats
+      px(lx - 10, ly - 2, 20, 3, C.wallHi);
+      px(lx - 4, ly + 2, 8, 6, C.deep);                // shackle
+      px(lx - 3, ly + 3, 6, 4, C.wallHi);
+      px(lx - 7, ly + 6, 14, 11, C.deep);              // body
+      px(lx - 6, ly + 7, 12, 9, C.gold);
+      px(lx - 1, ly + 10, 2, 4, C.deep);               // keyhole
+    }
+  } else {
+    for (let r = 0; r < 2; r++) {                             // high racking, decorative
+      const ry = 96 + r * 76;
+      for (let i = 0; i < 20; i++) {
+        const bx = Math.round(i * 124 - cx * 0.55);
+        if (bx > VIEW_W || bx + 112 < 0) continue;
+        // 1px dark edges, so the background reads in the same outlined style
+        // as the sprites instead of as flat blocked-in colour behind them.
+        px(bx + 5, ry - 25, 34, 26, C.deep);
+        px(bx + 6, ry - 24, 32, 24, C.card3);
+        px(bx + 45, ry - 20, 30, 21, C.deep);
+        px(bx + 46, ry - 19, 28, 19, C.card3);
+        px(bx + 79, ry - 28, 28, 29, C.deep);
+        px(bx + 80, ry - 27, 26, 27, C.card3);
+        px(bx, ry, 112, 6, C.deep);
+        px(bx, ry, 112, 5, C.wood);
+        px(bx + 8, ry + 5, 4, 14, C.wood);
+        px(bx + 100, ry + 5, 4, 14, C.wood);
+      }
+    }
+    for (let i = 0; i < bgSeedDoors.length; i++) {            // roll-up doors, parallax 0.55
+      const dx = Math.round(bgSeedDoors[i] - cx * 0.55);
+      if (dx > VIEW_W || dx + 150 < 0) continue;
+      px(dx - 1, 175, 152, 128, C.deep);              // door frame edge
+      px(dx, 176, 150, 12, C.doorLo);
+      px(dx + 4, 188, 142, 114, C.doorMid);
+      for (let sl = 0; sl < 14; sl++) px(dx + 4, 192 + sl * 8, 142, 2, C.doorLo);
+      px(dx + 4, 188, 142, 2, C.doorHi);
+      px(dx + 112, 246, 18, 5, C.wallHi);
+    }
+    px(0, GROUND_Y - 10, VIEW_W, 10, C.trim);                 // blue wall trim at floor line
+  }
+
+  // --- tiles
+  for (let i = 0; i < tiles.length; i++) {
+    const t = tiles[i], x = Math.round(t.x - cx);
+    if (x > VIEW_W || x + TILE < 0) continue;
+    if (t.t === '#' && t.y >= GROUND_Y) {                     // the floor itself
+      const fl = ART.bgFloor;
+      if (fl.ready) {
+        // Sampled by WORLD x rather than drawn whole per tile, so the concrete
+        // repeats every fl.img.width / S units whatever the tile grid does - a
+        // pit cuts it cleanly and there is no 24-unit pattern to spot. The
+        // image is its own mirror image side by side, so the wrap has no seam.
+        const tw = fl.img.width / S, u = ((t.x % tw) + tw) % tw;
+        ctx.drawImage(fl.img, u * S, 0, TILE * S, fl.img.height, x, t.y, TILE, TILE);
+      } else {
+        px(x, t.y, TILE, TILE, C.floor);
+        px(x, t.y, TILE, 2, C.floorHi);
+        px(x + 5, t.y + 9, 3, 1, C.floorHi);
+        px(x + 15, t.y + 16, 4, 1, C.floorHi);
+      }
+    } else if (t.t === '#') {
+      // Stacked cardboard: art/bg_boxwall.png, a box drawn face-on, one per
+      // tile. Face-on rather than the pickup's three-quarter crate, because a
+      // wall of three-quarter crates is a wall of diamond holes; this one fills
+      // its tile except for a small bevel at each top corner. Not mirrored on a
+      // checker - it is lit from one side, and flipping every other box would
+      // light the wall from both. The blocked-in version stays for when the art
+      // is missing.
+      const bxw = ART.bgBoxWall;
+      if (bxw.ready) {
+        // The bevels are the only gaps. C.cardDeep fills them only on the sides
+        // where this tile touches another box, so the outside of a stack keeps
+        // its bevelled corners instead of squaring off against a dark block.
+        const bl = t.nL ? 0 : 2, br = t.nR ? 0 : 2,
+              bu = t.nU ? 0 : 2, bd = t.nD ? 0 : 2;
+        px(x + bl, t.y + bu, TILE - bl - br, TILE - bu - bd, C.cardDeep);
+        ctx.drawImage(bxw.img, x, t.y, TILE, TILE);
+      } else {
+        px(x, t.y, TILE, TILE, C.deep);             // edge, reads as stacked boxes
+        px(x + 1, t.y + 1, TILE - 2, TILE - 2, C.card1);
+        px(x + 1, t.y + 1, TILE - 2, 2, C.card2);
+        px(x + 1, t.y + TILE - 4, TILE - 2, 2, C.card3);
+        px(x + 10, t.y + 1, 4, TILE - 2, C.card2);
+      }
+    } else if (!ART.rackDeck.ready) {              // a shelf, when the rack art is missing
+      px(x, t.y, TILE, 11, C.deep);                 // shelf edge
+      px(x, t.y, TILE, 4, C.woodHi);
+      px(x, t.y + 4, TILE, 6, C.wood);
+      px(x + 2, t.y + 6, 3, 4, '#6b5330');
+      px(x + 17, t.y + 6, 3, 4, '#6b5330');
+    }
+  }
+
+  // --- the shelves, as racks: after the floor, which would cover the front
+  // feet, and lowest first. Everything is placed in whole CANVAS pixels - the
+  // deck image is 62 px, 20.67 units, so in units nothing lands on the grid.
+  if (ART.rackDeck.ready) {
+    const dk = ART.rackDeck, lg = ART.rackLegs;
+    const dw = dk.img.width / dk.n, dh = dk.img.height;
+    const lw = lg.ready ? lg.img.width / lg.n : 0, lh = lg.ready ? lg.img.height : 0;
+    for (let i = 0; i < racks.length; i++) {
+      const rk = racks[i];
+      if (rk.x - cx > VIEW_W || rk.x + rk.w - cx < 0) continue;
+      const left = (rk.x - cx) * S, right = (rk.x + rk.w - cx) * S;   // canvas px, whole
+      if (lg.ready) {
+        // Cropped from the BOTTOM: the feet and the brace are always drawn, and
+        // the cut is at the top, under the deck.
+        const top = Math.round((rk.y + RACK.legTop) * S);
+        for (let side = 0; side < 2; side++) {
+          const bottom = Math.round(((side ? rk.footR : rk.footL) + RACK.ground) * S);
+          const len = Math.min(bottom - top, lh);
+          const lx = side ? right - lw : left;
+          ctx.drawImage(lg.img, side * lw, lh - len, lw, len, lx / S, (bottom - len) / S, lw / S, len / S);
+        }
+      }
+      // The deck: left end, then the middle until the right end. The last
+      // middle copy is cut short against the right end - at 30, 40 or 50 px for
+      // a 3, 4 or 5 tile shelf - so make_rack.py keeps the middle's rivet
+      // inside its first 30 px, or a cut through it shows.
+      const dy = rk.y - RACK.feet, stop = right - dw;
+      ctx.drawImage(dk.img, 0, 0, dw, dh, left / S, dy, dw / S, dh / S);
+      for (let mx = left + dw; mx < stop; mx += dw) {
+        const w = Math.min(dw, stop - mx);
+        ctx.drawImage(dk.img, dw, 0, w, dh, mx / S, dy, w / S, dh / S);
+      }
+      ctx.drawImage(dk.img, 2 * dw, 0, dw, dh, stop / S, dy, dw / S, dh / S);
+    }
+  }
+
+  // --- the pits go dark. One gradient, transparent at the floor line and black
+  // by the bottom of the level, filled over every run of missing floor - so a
+  // pit reads as a hole rather than as a window onto the backdrop. Drawn after
+  // the racks, so a leg standing in one fades into it. The gradient is built
+  // once: its coordinates are in world units and the camera's transform is what
+  // puts them on screen, so it follows the view on its own.
+  if (!pitShade) {
+    pitShade = ctx.createLinearGradient(0, GROUND_Y, 0, LEVEL_H);
+    pitShade.addColorStop(0, 'rgba(0,0,0,0)');
+    pitShade.addColorStop(0.55, 'rgba(0,0,0,0.72)');
+    pitShade.addColorStop(1, 'rgba(0,0,0,1)');
+  }
+  ctx.fillStyle = pitShade;
+  for (let i = 0; i < pits.length; i++) {
+    const pt = pits[i], px0 = pt.x - cx;
+    if (px0 > VIEW_W || px0 + pt.w < 0) continue;
+    ctx.fillRect(px0, GROUND_Y, pt.w, LEVEL_H - GROUND_Y);
+  }
+
+  // --- exit door marker. The open bay in the wall art is the exit now; this
+  // is the placeholder for when that art is missing.
+  const ex = Math.round(exitX - cx);
+  if (!ART.bgOpen.ready && ex < VIEW_W + 60 && ex > -60) {
+    if (gateShut()) {
+      // Shut, in the same palette and the same 8-unit slat pitch as the
+      // procedural doors along the fallback wall, so it reads as one of them.
+      px(ex - 1, GROUND_Y - 119, 48, 119, C.deep);
+      px(ex, GROUND_Y - 118, 46, 12, C.doorLo);
+      px(ex, GROUND_Y - 106, 46, 106, C.doorMid);
+      for (let sl = 0; sl < 13; sl++) px(ex, GROUND_Y - 104 + sl * 8, 46, 2, C.doorLo);
+      px(ex, GROUND_Y - 106, 46, 2, C.doorHi);
+      px(ex + 16, GROUND_Y - 60, 14, 5, C.deep);
+      px(ex + 17, GROUND_Y - 59, 12, 3, C.gold);       // the same padlock, smaller
+    } else {
+      px(ex, GROUND_Y - 118, 46, 118, C.deep);
+      px(ex, GROUND_Y - 118, 46, 5, C.doorHi);
+      px(ex + 4, GROUND_Y - 110, 38, 4, 'rgba(238,243,247,.30)');
+    }
+  }
+
+  // --- the truck, backed into the bay at the end of the unit.
+  // The open bay in the wall art already has a truck backed into it, so the
+  // sprite would be a second one parked in front of the first. It stays as the
+  // fallback for when that art is missing.
+  if (state !== 'ending' && state !== 'score' && !ART.bgOpen.ready) {
+    const twx = Math.round(TRUCK_X + 85 - cx);
+    if (twx > -180 && twx < VIEW_W + 180) sprite('truck', 0, twx, GROUND_Y, false);
+  }
+
+  // --- pickups
+  for (let i = 0; i < boxes.length; i++) {
+    const b = boxes[i]; if (b.got) continue;
+    const x = Math.round(b.x - cx); if (x > VIEW_W + 20 || x < -20) continue;
+    const bob = Math.sin(clock * 3 + b.x * 0.05) * 1.5;
+    if (!sprite('box', 0, x, b.y + 10 + bob, false)) drawBox(x, b.y + bob);
+  }
+  for (let i = 0; i < loose.length; i++) {
+    const l = loose[i], x = Math.round(l.x - cx);
+    if (!sprite('box', 0, x, l.y + 8, false)) drawBox(x, l.y, 20);
+  }
+  for (let i = 0; i < cards.length; i++) {
+    const c = cards[i]; if (c.got) continue;
+    const x = Math.round(c.x - cx); if (x > VIEW_W + 20 || x < -20) continue;
+    const bob = Math.sin(clock * 4 + c.x * 0.03) * 2;
+    const cf = c.design * 4 + Math.floor(clock * 8) % 4;
+    if (!sprite('card', cf, x, c.y + 11 + bob, false)) drawCard(x, c.y + bob, c.torch);
+  }
+
+  // --- enemies
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    const x = Math.round(e.x - cx); if (x > VIEW_W + 30 || x < -30) continue;
+    if (e.dead > 0) { px(x, e.y + e.h - 3, e.w, 3, '#4a3524'); continue; }
+    const key = e.kind === 'rat' ? 'rat' : 'roach';
+    if (!sprite(key, Math.floor(e.anim) % 4, x + e.w/2, e.y + e.h, e.vx < 0)) {
+      e.kind === 'rat' ? drawRat(e) : drawRoach(e);
+    }
+  }
+
+  // --- spider
+  if (spider.active && spider.char < 1) {
+    const sx = Math.round(spider.x - cx);
+    if (sx < VIEW_W + 80 && sx > -100) {
+      ctx.save();
+      // Frames 8-11 are the rig's own collapse - legs folding under a sinking
+      // body - so the burn plays those instead of squashing the walk frame.
+      // Only the last of it fades, or he would vanish before he finished dying.
+      let sf = Math.floor(spider.anim / SPIDER_STRIDE) % 8;
+      if (spider.char > 0) {
+        sf = 8 + Math.min(3, Math.floor(spider.char * 4));
+        ctx.globalAlpha = 1 - Math.max(0, (spider.char - 0.7) / 0.3);
+      }
+      if (!sprite('spider', sf, sx + spider.w/2, spider.y + spider.h + 2, false)) {
+        ctx.save(); ctx.translate(sx, spider.y); ctx.scale(1.25, 1.25);
+        drawSpider(0, 0, spider.burn > 0); ctx.restore();
+      }
+      ctx.restore();
+    }
+  }
+
+  // --- torch guy + flames
+  if (torch.active) {
+    const tx = Math.round(torch.x - cx);
+    const tp = torchGuyPose();
+    ctx.save();
+    if (tp.a != null) ctx.globalAlpha = Math.max(0, Math.min(1, tp.a));
+    if (!sprite('torchguy', tp.f, tx, torch.y, tp.flip)) {
+      ctx.save(); ctx.translate(tx, torch.y); ctx.scale(HERO * TORCH_K, HERO * TORCH_K);
+      drawTorchGuy(0, 0); ctx.restore();
+    }
+    ctx.restore();
+    // The jet hangs its RIGHT edge on the muzzle, centred on the muzzle's own
+    // height. MUZZLE.x is already negative - ahead of him is to the LEFT, the
+    // way the sheet is drawn - so there is nothing to mirror. Both edges are
+    // snapped to canvas pixels, as sprite() does, or the jet shimmers against
+    // a man who does not.
+    if (torch.phase === 'burn' && ART.flame.ready) {
+      const fa = ART.flame, fw = fa.img.width / fa.n;
+      const f = Math.floor(torch.pt * 18) % fa.n;
+      ctx.drawImage(fa.img, f * fw, 0, fw, fa.img.height,
+                    Math.round((tx + MUZZLE.x - fa.bw) * S) / S,
+                    Math.round((torch.y + MUZZLE.y - fa.bh / 2) * S) / S,
+                    fa.bw, fa.bh);
+    }
+  }
+
+  // --- player. Once Grimace is down the player is underneath him.
+  if (!(player.invuln > 0 && Math.floor(clock * 20) % 2) && !grim.down) {
+    const pxc = Math.round((player.x + player.w/2 - cx) * S) / S,
+          pby = Math.round((player.y + player.h) * S) / S;
+    let f = 0, faceLeft = player.face < 0;
+    if (playerShaking()) { f = 12; faceLeft = true; }      // torch guy is on his left
+    else if (!player.grounded) f = player.vy < 0 ? 10 : 11;
+    else if (Math.abs(player.vx) > 12) f = 2 + (Math.floor(player.anim) % 8);
+    else f = Math.floor(clock * 2) % 2;
+    if (!sprite('player', f, pxc, pby, faceLeft)) {
+      ctx.save();
+      ctx.translate(pxc, pby);
+      ctx.scale(1 / S, 1 / S);                       // 1 unit = 1 canvas pixel
+      if (player.face < 0) ctx.scale(-1, 1);
+      drawHeroHD(player.anim * 0.85, !player.grounded, player.vy < 0);  // anim rate doubled above
+      ctx.restore();
+    }
+  }
+
+  // --- broken concrete, from art/cracks.png. Cut per FLOOR TILE so a pit stops
+  // a crack exactly where it stops the concrete, and both ends of every piece
+  // snapped to canvas pixels, so the source columns are whole and the pieces
+  // meet without a seam. `reach` is how far out from the middle of the strip is
+  // drawn: Grimace gets all of it, a stomped rat the middle 26 units.
+  if (ART.cracks.ready) {
+    const ck = ART.cracks;
+    const crackAt = function (atX, reach) {
+      const left = atX - ck.bw / 2;
+      for (let i = 0; i < tiles.length; i++) {
+        const t = tiles[i];
+        if (t.t !== '#' || t.y < GROUND_Y || t.x - cx > VIEW_W || t.x + TILE - cx < 0) continue;
+        const l = Math.round(Math.max(t.x, atX - reach) * S) / S;
+        const r = Math.round(Math.min(t.x + TILE, atX + reach) * S) / S;
+        if (r <= l) continue;
+        ctx.drawImage(ck.img, Math.round((l - left) * S), 0, Math.round((r - l) * S), ck.img.height,
+                      l - cx, GROUND_Y, r - l, ck.bh);
+      }
+    };
+    for (let i = 0; i < stomps.length; i++) {
+      const sm = stomps[i];
+      if (sm.x - cx > VIEW_W + STOMP_REACH || sm.x - cx < -STOMP_REACH) continue;
+      crackAt(sm.x, STOMP_REACH * Math.min(1, sm.t / STOMP_GROW));
+    }
+    if ((state === 'crushed' || crushed) && grim.down && grim.onFloor)
+      crackAt(grim.x, ck.bw / 2 * Math.min(1, grim.t / 0.28));
+  }
+
+  // --- Grimace, over the top of whatever he is landing on. Not until he has
+  // been let go - before that he is nowhere.
+  if ((state === 'crushed' || crushed) && grim.drop) {
+    const gx = Math.round(grim.x - cx);
+    if (!sprite('grimace', grim.down ? 1 : 0, gx, grim.y, false)) {
+      // Sized off ART.grimace, not typed in: the art doubled once already, and a
+      // literal 92 x 79 here would have gone on drawing the old size.
+      px(gx - ART.grimace.bw / 2, grim.y - ART.grimace.bh, ART.grimace.bw, ART.grimace.bh, '#6b3fa0');
+    }
+  }
+
+  ctx.setTransform(S, 0, 0, S, 0, 0);   // back to canvas space for overlays
+  // --- chase vignette
+  if (spider.active && spider.burn <= 0 && !torch.active) {
+    const near = clamp(1 - (player.x - spider.x - spider.w) / 260, 0, 1);
+    ctx.fillStyle = 'rgba(184,54,42,' + (near * 0.30).toFixed(3) + ')';
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  }
+
+  if ((state === 'ending' || state === 'score') && !crushed) renderLoading();
+}
+
+/* --- end-of-level truck + box loading ------------------------------------ */
+let tally = 0;
+// Where the truck's cargo opening sits inside the open-bay tile, as fractions
+// of the tile rather than pixels, so re-running tools/make_bg.py at another
+// scale cannot silently move the target. Measured off the art: the inner edge
+// of the silver frame down to the load deck.
+const BAY_IN = { x0: 0.324, x1: 0.695, y0: 0.436, y1: 0.827 };
+// 4 x 4, because the opening is square (59 x 59 world units) and so is the box
+// art. A 4 x 6 grid squashed every crate to 1.5:1.
+const LOAD_COLS = 4, LOAD_ROWS = 4;
+
+// The end of the run. There is no truck sprite any more - the truck is in the
+// wall art, backed into the bay - so this only throws the boxes the player
+// collected into its cargo opening and stacks them there. Canvas space: the
+// caller has already reset the transform, so world coordinates need the camera
+// taking off them by hand.
+function renderLoading() {
+  const t = state === 'score' ? tally : 0;
+  const bgo = ART.bgOpen;
+  if (!bgo.ready) return;
+
+  const bw = bgo.img.width / S, bh = bgo.img.height / S;
+  const left = BG_OPEN_X - bw / 2 - cam.x * BG_PARALLAX;
+  const top = (GROUND_Y - bh) - cam.y;
+  const x0 = left + bw * BAY_IN.x0, x1 = left + bw * BAY_IN.x1;
+  const y0 = top + bh * BAY_IN.y0,  y1 = top + bh * BAY_IN.y1;
+  const cw = (x1 - x0) / LOAD_COLS, ch = (y1 - y0) / LOAD_ROWS;
+
+  // One box every 0.05s once the score sheet starts counting, which is what
+  // showScore's own boxDelay is timed against.
+  const loadT = Math.max(0, t - 1.4);
+  const loaded = Math.min(boxesGot, Math.floor(loadT / 0.05));
+  const cell = function (i) {
+    const c = i % LOAD_COLS, r = Math.floor(i / LOAD_COLS) % LOAD_ROWS;
+    return { x: x0 + c * cw, y: y1 - (r + 1) * ch };
+  };
+  // drawImage, not sprite(): a sprite draws at its own ART size - 26 units -
+  // and these have to fit a 15-unit cell inside the truck.
+  const bi = ART.box;
+  const crate = function (x, y, w, h) {
+    if (bi.ready) ctx.drawImage(bi.img, x, y, w, h);
+    else { px(x + 1, y + 1, w - 2, h - 2, C.card1); px(x + 1, y + 1, w - 2, 2, C.card2); }
+  };
+  for (let i = 0; i < loaded; i++) {
+    const q = cell(i);
+    crate(q.x, q.y, cw, ch);
+  }
+  // and the one in the air, arcing in off the dock floor. NOT thrown from the
+  // player: he walks on past the exit during the ending and finishes about 100
+  // units off the right of the screen, so boxes would have popped in at the
+  // edge. It shrinks from full size to cell size on the way, which is what
+  // sells the depth - it is travelling away from camera into the truck.
+  if (loaded < boxesGot && loadT > 0) {
+    const k = (loadT % 0.05) / 0.05;
+    const q = cell(loaded);
+    const sx = VIEW_W * 0.16, sy = GROUND_Y - cam.y - 6;
+    const fx = sx + (q.x + cw / 2 - sx) * k;
+    const fy = sy + (q.y + ch / 2 - sy) * k - Math.sin(k * Math.PI) * 46;
+    const fw = 26 + (cw - 26) * k, fh = 26 + (ch - 26) * k;
+    crate(fx - fw / 2, fy - fh / 2, fw, fh);
+  }
+}
+
+/* ==========================================================================
+   13. SCORE SHEET
+   ========================================================================== */
+const sheetScore = document.getElementById('score');
+const rowEls = { box:document.getElementById('rBox'), card:document.getElementById('rCard'),
+                 time:document.getElementById('rTime'), clean:document.getElementById('rClean'),
+                 total:document.getElementById('rTotal') };
+const gradeEl = document.getElementById('grade'), againEl = document.getElementById('again');
+
+// THE CLIP OVER GAME OVER. Optional, like every other asset: drop art/loser.mp4
+// or art/loser.webm in and it plays, see-through, behind the text; with neither
+// the sheet is just GAME OVER and the button.
+// Its SOUND is the awkward half. iPhone Safari will not let a page start audio
+// on its own, and nothing the player taps is anywhere near this moment - so the
+// video plays MUTED and the sound comes from audio/loser.mp3 through the
+// context the first tap already unlocked, the same way every other sound here
+// does. Without that file it still tries the video unmuted and falls back to
+// muted if the browser refuses, which on a phone it will.
+const loserEl = document.getElementById('loserClip');
+const LOSER_SRC = ['art/loser.mp4', 'art/loser.webm'];
+let loserReady = false, loserBuf = null, loserTry = 0, loserSrc = null, loserPrimed = false;
+function nextLoserSrc() {
+  if (loserTry >= LOSER_SRC.length) return;
+  loserEl.src = LOSER_SRC[loserTry++];
+}
+loserEl.addEventListener('loadeddata', function () { loserReady = true; });
+// Only while still looking for a file that works. Without the guard, an error
+// DURING playback moved it on to the next source - a 404 - and killed the clip
+// for the rest of the run.
+loserEl.addEventListener('error', function () { if (!loserReady) nextLoserSrc(); });
+nextLoserSrc();
+
+// The clip's sound arrived as AAC in a FRAGMENTED mp4 (moof/mdat, DASH brand,
+// no esds - tools/check_audio.py says as much and tells you to listen). Chrome
+// and Safari both decode it, checked, but a plain .mp3 would too, so try either.
+const LOSER_SFX = ['audio/loser.m4a', 'audio/loser.mp3'];
+function loadLoserSound(i) {
+  i = i || 0;
+  if (typeof fetch !== 'function' || i >= LOSER_SFX.length) return;
+  fetch(LOSER_SFX[i])
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+    .then(function (b) {
+      return new Promise(function (res, rej) { ac.decodeAudioData(b, res, rej); });
+    })
+    .then(function (buf) { loserBuf = buf; })
+    .catch(function () { loadLoserSound(i + 1); });   // the video then tries for itself
+}
+
+// It runs until RUN IT BACK, so both halves loop - and they loop on the SAME
+// period, the video's, or they walk apart: the sound is 2.83s against 2.77s of
+// picture, which is a frame and a half of drift per pass and half a second of
+// it by the tenth. `loopEnd` on the source is what holds them together; the
+// 0.06s it cuts is the tail of the sound.
+// The gain is fixed at 0.9 and the mute goes through `dry` like everything
+// else: set from `muted` here instead, a clip started while muted would stay
+// silent through an unmute, because nothing revisits this node.
+// A phone only lets a page start video off a user's own tap. Nobody taps
+// anything at the moment of a crush, so the tap that starts the RUN is spent on
+// it here: play it muted and stop it again straight away, which leaves the
+// element allowed to play later. Harmless where it is not needed.
+function primeLoser() {
+  if (loserPrimed) return;
+  loserPrimed = true;
+  loserEl.muted = true;
+  const p = loserEl.play();
+  if (p && p.then) p.then(function () {
+    loserEl.pause();
+    try { loserEl.currentTime = 0; } catch (e) { /* not seekable yet */ }
+  }).catch(function () { /* it will try again for real at GAME OVER */ });
+}
+
+function playLoser() {
+  stopLoser();
+  if (loserBuf && ac && ac.state === 'running') {
+    const s = ac.createBufferSource(), g = ac.createGain();
+    s.buffer = loserBuf; g.gain.value = LOSER_VOL;
+    s.loop = true;
+    s.loopStart = 0;
+    s.loopEnd = isFinite(loserEl.duration) ? Math.min(loserBuf.duration, loserEl.duration) : loserBuf.duration;
+    s.connect(g); g.connect(dry); s.start();
+    loserSrc = s;
+    loserEl.muted = true;
+  } else {
+    loserEl.muted = muted;
+  }
+  // NOT GATED ON `loadeddata`. A phone does not pre-load video the way a
+  // desktop does, so that event had not fired by the time anyone got crushed -
+  // the sound played and the picture never did, which is exactly what came back
+  // from the first real phone. Just ask it to play; if it cannot, drop the
+  // class again so the sheet is the words and the button, as it is with no clip
+  // at all.
+  sheetScore.classList.add('clip');
+  loserEl.loop = true;
+  try { loserEl.currentTime = 0; } catch (e) { /* not seekable yet */ }
+  const p = loserEl.play();
+  if (p && p.catch) p.catch(function () {
+    loserEl.muted = true;
+    loserEl.play().catch(function () { sheetScore.classList.remove('clip'); });
+  });
+}
+
+function stopLoser() {
+  if (loserSrc) {
+    try { loserSrc.stop(); } catch (e) { /* already stopped */ }
+    loserSrc = null;
+  }
+  loserEl.pause();
+  try { loserEl.currentTime = 0; } catch (e) { /* not seekable */ }
+}
+
+// THE CLIP IS ONE GOP. 83 frames, one keyframe, at the front - and there is no
+// second one to be had without an encoder, so every loop re-primes the decoder
+// from the top of the file. tools/make_loser.py took away the two things that
+// made that seek harder than it needed to be - a DASH-fragmented container, and
+// an edit list that pointed presentation time zero at the frame AFTER the
+// keyframe - but a phone that drops a pass anyway leaves a frozen picture over
+// a sound that carries on, which is what came back from a real one: it froze on
+// every other loop. So watch it. If the picture has not moved for CLIP_STALL
+// while it is supposed to be running, put it back on the keyframe and start it
+// again; three of those in a row and the file is reloaded, and if that will not
+// play either the sheet goes back to being the words and the button.
+const CLIP_STALL = 0.5;          // seconds of a still picture before it is stuck
+const CLIP_WELL  = 1.0;          // seconds of moving picture that count as recovered
+let clipAt = -1, clipStuck = 0, clipWell = 0, clipKicks = 0;
+function watchLoser(dt) {
+  if (!(state === 'score' && crushed && sheetScore.classList.contains('clip'))) {
+    clipAt = -1; clipStuck = 0; clipWell = 0; clipKicks = 0; return;
+  }
+  const t = loserEl.currentTime;
+  if (loserEl.paused) {          // backgrounded, or it never got going
+    clipAt = t; clipStuck = 0;
+    const r = loserEl.play(); if (r && r.catch) r.catch(function () {});
+    return;
+  }
+  if (t !== clipAt) {            // the picture moved
+    clipAt = t; clipStuck = 0;
+    // CLIP_WELL, not the first frame that moves: a kick SEEKS, so the frame
+    // after one always looks like progress, and counting that as recovery
+    // meant clipKicks could never reach 3 and the reload below was dead code.
+    clipWell += dt;
+    if (clipWell > CLIP_WELL) clipKicks = 0;
+    return;
+  }
+  clipStuck += dt;
+  if (clipStuck < CLIP_STALL) return;
+  clipStuck = 0; clipWell = 0; clipKicks++;
+  // Back to the keyframe, never to wherever the sound has got to: a seek into
+  // the middle of this file is the expensive one, and a stopped picture is
+  // already the glitch - the two running a few frames apart is not.
+  if (clipKicks >= 3) { clipKicks = 0; loserEl.load(); }
+  try { loserEl.currentTime = 0; } catch (e) { /* not seekable */ }
+  const p = loserEl.play();
+  if (p && p.catch) p.catch(function () { sheetScore.classList.remove('clip'); });
+}
+
+// Every lookup is getElementById - sim.js stubs only that, not querySelector.
+const cbEl = document.getElementById('cardBanner'), cbArt = document.getElementById('cbArt');
+const cbKicker = document.getElementById('cbKicker'), cbName = document.getElementById('cbName');
+let cbTimer = null;
+
+// Crop one element to one cell of the cards_menu strip. The zoom and the step
+// both come from CARD_NAMES.length, so the sheet growing a card is two list
+// entries and two divs - no CSS arithmetic to forget, which is exactly what
+// went wrong when it went from five cards to six.
+function paintCard(el, design) {
+  if (!el) return;
+  el.style.backgroundSize = (CARD_NAMES.length * 100) + '% 100%';
+  el.style.backgroundPosition = (design * CARD_STEP) + '% 0';
+}
+const cardMinis = CARD_NAMES.map(function (_, i) { return document.getElementById('cbMini' + i); });
+const cardSlots = CARD_NAMES.map(function (_, i) { return document.getElementById('cardSlot' + i); });
+for (let i = 0; i < CARD_NAMES.length; i++) { paintCard(cardMinis[i], i); paintCard(cardSlots[i], i); }
+paintCard(document.getElementById('tsCard'), TORCH_DESIGN);
+
+// The run so far. Read straight off `cards` rather than a tally of its own, so
+// it cannot drift from what has actually been picked up.
+function paintRun(justGot) {
+  for (let i = 0; i < cardMinis.length; i++) {
+    const el = cardMinis[i];
+    if (!el) continue;
+    let got = false;
+    for (let j = 0; j < cards.length; j++) if (cards[j].got && cards[j].design === i) got = true;
+    el.classList.toggle('got', got);
+    el.classList.toggle('new', i === justGot);
+  }
+}
+
+// The torch-card graphic, art/torch-splash.png, any size; it is fitted to the
+// screen, never stretched. Missing, the splash falls back to the same card's
+// cell on the shelf sheet - tools/make_cards.py builds both from one drawing.
+const tsEl = document.getElementById('torchSplash'), tsImg = document.getElementById('tsImg');
+(function () {
+  const im = new Image();
+  im.onload = function () { if (tsImg) tsImg.src = im.src; if (tsEl) tsEl.classList.add('custom'); };
+  im.src = 'art/torch-splash.png';
+})();
+function showTorchSplash(on) { if (tsEl) { if (on) tsEl.classList.add('in'); else tsEl.classList.remove('in'); } }
+
+function showCardBanner(design) {
+  if (!cbEl || !cbArt) return;
+  const n = CARD_NAMES[design] || ['', 'CARD'];
+  paintCard(cbArt, design);
+  paintRun(design);
+  cbKicker.textContent = n[0]; cbName.textContent = n[1];
+  cbEl.classList.add('in');
+  if (cbTimer && typeof clearTimeout === 'function') clearTimeout(cbTimer);
+  cbTimer = setTimeout(function(){ cbEl.classList.remove('in'); }, 2600);
+}
+function setRow(el, label, val) { el.children[0].textContent = label; el.children[1].textContent = val; el.classList.add('in'); }
+
+function showScore() {
+  const s = computeScore();
+  state = 'score'; tally = 0;
+  sheetScore.classList.remove('gone');
+  for (const k in rowEls) rowEls[k].classList.remove('in');
+  cardSlots.forEach(function(el){ el.classList.remove('got'); });
+  gradeEl.classList.remove('in'); againEl.classList.remove('in');
+  showPad(false);                   // RUN IT BACK is where the d-pad is
+  stopLoser();                      // a finished run after a crushed one
+  sheetScore.classList.toggle('over', crushed);
+  sheetScore.classList.remove('clip');
+
+  // Crushed: no tally at all. Nothing was collected that counts, so there is
+  // nothing to count up - GAME OVER, the button, and the clip if it is there.
+  if (crushed) {
+    gradeEl.textContent = 'GAME OVER';
+    gradeEl.classList.add('over');
+    gradeEl.classList.add('in');
+    againEl.classList.add('in');
+    playLoser();
+    return;
+  }
+
+  const boxDelay = 1400 + boxesGot * 50;
+  setTimeout(function(){ setRow(rowEls.box,  'boxes  ' + boxesGot + '/' + TOTAL_BOXES, '+' + s.boxPts); chime(698, 1.2, .055); }, boxDelay);
+  setTimeout(function(){ setRow(rowEls.card, 'cards  ' + cardsGot + '/' + TOTAL_CARDS, '+' + s.cardPts); chime(784, 1.2, .055); }, boxDelay + 500);
+  cards.forEach(function(c){
+    if (!c.got) return;
+    setTimeout(function(){
+      const el = cardSlots[c.design];
+      if (el) el.classList.add('got');
+      chime(660 + c.design * 110, 1.1, .05);
+    }, boxDelay + 620 + c.design * 130);
+  });
+  setTimeout(function(){ setRow(rowEls.time, 'time  ' + clock.toFixed(1) + 's', '+' + s.timePts); chime(880, 1.2, .055); }, boxDelay + 1000);
+  setTimeout(function(){ setRow(rowEls.clean,'no-hit bonus', s.cleanPts ? '+' + s.cleanPts : '—'); chime(988, 1.2, .055); }, boxDelay + 1500);
+  setTimeout(function(){ setRow(rowEls.total,'TOTAL', String(finalScore)); chime(1046, 1.8, .065); }, boxDelay + 2100);
+  setTimeout(function(){
+    gradeEl.textContent = grade;
+    gradeEl.classList.remove('over');
+    gradeEl.classList.add('in');
+    chime(1568, 2.6, .075);
+  }, boxDelay + 2600);
+  setTimeout(function(){ againEl.classList.add('in'); }, boxDelay + 3100);
+}
+// RUN IT BACK always rolls a NEW layout. ?seed=N picks the layout you START
+// on - it is not a lock on the button, and reading it here made the button
+// look broken on exactly the URLs used to hold one layout still. Reload the
+// page to replay a seed. ?seed=classic is a MODE, not a seed, so it stays put.
+againEl.addEventListener('click', function(){
+  sheetScore.classList.add('gone');
+  showPad(true);
+  stopLoser();
+  newLevel(SEED_PARAM === 'classic' ? 'classic' : null);
+  resetRun();
+});
+
+/* ==========================================================================
+   14. LOOP
+   ========================================================================== */
+const hud = document.getElementById('hud');
+const DEBUG = location.search.indexOf('fps') >= 0;   // append ?fps to the URL to measure
+let last = 0, acc = 0, running = false, fps = 60, fpsT = 0, fpsN = 0;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (!running) return;
+  let dt = (now - last) / 1000; last = now;
+  if (dt > 0.25) dt = 0.25;                    // Safari pauses rAF when backgrounded
+  acc += dt;
+  let guard = 0;
+  while (acc >= STEP && guard++ < 8) { if (state === 'score') tally += STEP; else update(STEP); acc -= STEP; }
+  if (state === 'score') tally += 0;
+  render();
+  watchLoser(dt);
+
+  fpsN++; fpsT += dt;
+  if (fpsT >= 0.5) { fps = Math.round(fpsN / fpsT); fpsT = 0; fpsN = 0; }
+  const dbg = DEBUG ? ' &nbsp;·&nbsp; ' + fps + 'fps @ ' + (VIEW_W * S) + '\u00d7' + (VIEW_H * S)
+    + ' &nbsp;&middot;&nbsp; ' + window.innerWidth + 'x' + window.innerHeight
+    + ' safe ' + Math.round(safeSeen.top) + '/' + Math.round(safeSeen.bottom)
+    + ' &nbsp;&middot;&nbsp; seed ' + levelSeed : '';
+
+  if (state === 'score') hud.innerHTML = dbg;
+  else if (spider.active && spider.burn <= 0 && !torch.active)
+    hud.innerHTML = '<i>RUN</i> &nbsp; <b>' + boxesGot + '</b>/' + TOTAL_BOXES + ' boxes &nbsp;·&nbsp; ' + clock.toFixed(1) + 's' + dbg;
+  else
+    hud.innerHTML = '<b>' + boxesGot + '</b>/' + TOTAL_BOXES + ' boxes &nbsp;·&nbsp; <b>' + cardsGot + '</b>/' + TOTAL_CARDS + ' cards &nbsp;·&nbsp; ' + clock.toFixed(1) + 's' + dbg;
+}
+
+document.addEventListener('visibilitychange', function(){
+  if (document.hidden) return;
+  last = performance.now(); acc = 0;
+  // A browser pauses a silent video in a hidden page to save power - Chrome says
+  // so in as many words - and this one is silent by design, its sound being a
+  // separate file. So pick it back up when the page comes back, if GAME OVER is
+  // still on screen.
+  if (state === 'score' && crushed && sheetScore.classList.contains('clip'))
+    loserEl.play().catch(function () {});
+});
+
+const splash = document.getElementById('splash');
+// The title card replaces the text title only once it has actually loaded. The
+// <img> starts loading before this script runs, so it may already be done.
+const titleArt = document.getElementById('titleArt');
+function titleReady() { if (titleArt.naturalWidth) splash.classList.add('art'); }
+titleArt.addEventListener('load', titleReady);
+if (titleArt.complete) titleReady();
+function start() {
+  unlockAudio();
+  primeLoser();
+  splash.classList.add('gone');
+  showPad(true);
+  resize(); resetRun();
+  last = performance.now(); acc = 0; running = true;
+}
+splash.addEventListener('touchstart', function(e){ e.preventDefault(); start(); }, { passive:false });
+splash.addEventListener('click', start);
+
+resize();
+resetRun();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

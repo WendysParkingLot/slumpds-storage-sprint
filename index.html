@@ -202,10 +202,22 @@
      column by 39px wherever the card is limited by height with the tagline on
      - a 375x548 SE in Safari - and centring split that into the top padding,
      which put the card's title under the mute button. */
-  #titleArt { display:none; max-width:100%; max-height:calc(100% - 104px); object-fit:contain;
+  /* Everything under the card: the tagline's two lines, the flip hint, the
+     prompt and the three gaps. Measured at 126 on 393x852, 375x548, 320x568
+     and 393x659, in this machine's font and in Courier New - a 0.6em advance,
+     as wide as a phone's monospace gets - with the hint on one line at every
+     one of them. 134 is 126 plus the 8 the hint grows by if a narrower phone
+     wraps it onto two lines beside the icon. */
+  #titleArt { display:none; max-width:100%; max-height:calc(100% - 134px); object-fit:contain;
               border-radius:4px; box-shadow:0 12px 40px rgba(0,0,0,.7); }
   #splash.art #titleArt { display:block; }
   #splash.art h1 { display:none; }
+  /* Landscape shows no flip hint - see .flipHint - so it holds back less:
+     measured at 82 on a 1280x800 window. A landscape PHONE is shorter than
+     520 and the rule below it wins. */
+  @media (orientation: landscape) {
+    #titleArt { max-height:calc(100% - 84px); }
+  }
   /* A landscape phone has 375px of height for all of it: the card, then only
      the prompt. */
   @media (max-height:520px) {
@@ -354,6 +366,34 @@
   }
   .cardSlot.got { filter:none; opacity:1; transform:none; }
   #splash h1, #splash p { text-shadow:0 3px 0 rgba(0,0,0,.9); }
+  /* 300, not the sheet's 280: the hint is a 34px icon beside a 30-character
+     line, and at SF Mono's 7.8px a character that is 277 of 280 - one font
+     metric away from wrapping. */
+  #splash .tagline { max-width:300px; }
+
+  /* YOU CAN PLAY IT SIDEWAYS, and the hint says so only where that means
+     something: a screen held tall. Held sideways it is already done, and a
+     desktop window is landscape too, where there is nothing to turn. On a
+     landscape PHONE the whole tagline is hidden anyway - see max-height:520px
+     above - because the card needs the room. */
+  .flipHint { display:flex; align-items:center; justify-content:center; gap:8px;
+              margin-top:10px; }
+  @media (orientation: landscape) { .flipHint { display:none; } }
+  .flipIcon { width:34px; height:34px; flex:none; overflow:visible; fill:none;
+              stroke:#e0913c; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+  .flipArrow { stroke:#9aa0a6; }
+  /* The phone tips onto its side and back. Rotated about the centre of the
+     VIEWBOX, which is where the phone is drawn, so the pivot does not depend
+     on transform-box:fill-box - one less thing for an older Safari to get
+     wrong. The arrow sits outside the circle the phone's corners sweep. */
+  .flipPhone { transform-box:view-box; transform-origin:20px 20px;
+               animation:flipPhone 3.2s ease-in-out infinite; }
+  @keyframes flipPhone {
+    0%, 22%   { transform:rotate(0deg); }
+    40%, 72%  { transform:rotate(90deg); }
+    90%, 100% { transform:rotate(0deg); }
+  }
+  @media (prefers-reduced-motion: reduce) { .flipPhone { animation:none; } }
   /* The text title, for when art/title.jpg is missing. 8vw keeps "STORAGE
      SPRINT", the longer line, inside a 375px phone's 335px column. */
   #splash h1 { font-size:min(36px, 8vw); line-height:1.15; }
@@ -396,6 +436,80 @@
     font:inherit; font-size:14px; letter-spacing:.08em; opacity:0; transition:opacity .3s;
   }
   #again.in { opacity:1; }
+
+  /* The letter and the button. A wrapper only so the landscape grid below can
+     put them in one cell; everywhere else it is display:contents and they are
+     flex items of #score exactly as they were before it existed. */
+  #verdict { display:contents; }
+
+  /* A PHONE ON ITS SIDE CANNOT STACK THE SHEET, it is not a matter of
+     squeezing. The column is 313px of rows, total, letter and button before a
+     single card, against 393px of screen, and the shelf is 125 on top of that -
+     so with flex-end and 14vh under it the column grew off the TOP: measured at
+     852x393, boxes at -87, cards at -64, the shelf cut at -31. So a short,
+     wide screen gets two columns under the shelf: the tally on the left, the
+     letter and the button on the right, which is 130px where the stack was
+     313. The shelf keeps full-size cards wherever the height allows and
+     shrinks by height where it does not. 228 is everything that is not a
+     card - 58 over it, 12 under, the shelf's margins, the row gap under it
+     and the tally, 220 measured - plus 8 for a phone's font setting the rows
+     a little taller than this machine's. 500 wide is the narrowest the two
+     columns and RUN IT BACK fit; no phone is narrower on its side.
+     :not(.gone) because an id outranks .sheet.gone, and display:grid would
+     otherwise un-hide the sheet; :not(.over) because GAME OVER is two items
+     and stays the centred column it always was. */
+  @media (orientation: landscape) and (max-height: 560px) and (min-width: 500px) {
+    #score:not(.gone):not(.over) {
+      display:grid; grid-template-columns:250px auto; column-gap:56px; row-gap:6px;
+      grid-template-areas:
+        'shelf shelf'
+        'box   verdict'
+        'card  verdict'
+        'time  verdict'
+        'clean verdict'
+        'total verdict';
+      align-content:center; justify-content:center;
+      padding:calc(env(safe-area-inset-top,0px) + 58px) 20px
+              calc(env(safe-area-inset-bottom,0px) + 12px);
+    }
+    #score:not(.gone):not(.over) #rBox   { grid-area:box; }
+    #score:not(.gone):not(.over) #rCard  { grid-area:card; }
+    #score:not(.gone):not(.over) #rTime  { grid-area:time; }
+    #score:not(.gone):not(.over) #rClean { grid-area:clean; }
+    #score:not(.gone):not(.over) #rTotal { grid-area:total; }
+    /* Wider than the two columns under it, centred over both. */
+    #score:not(.gone):not(.over) #cardShelf {
+      grid-area:shelf; justify-self:center; width:min(534px, calc(100vw - 40px));
+    }
+    #score:not(.gone):not(.over) .cardSlot {
+      width:min(84px, calc((100% - 30px) / 6),
+                calc((100vh - 228px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px)) * 49 / 73));
+    }
+    /* dvh BEHIND @supports, NOT as a second declaration. The usual trick - an
+       old unit, then the new one on the next line for the browsers that know
+       it - does not work when the line contains env(): a value with env() in
+       it is kept at parse time the way a var() is, so the dvh line wins the
+       cascade even where dvh is unknown, fails when env() is substituted,
+       and leaves width at auto - a slot with no content, so 0 wide. On iOS
+       15.0-15.3, which has env() and not dvh, every card would vanish from
+       this sheet. Measured in Chromium with a made-up unit standing in for
+       dvh: 50px then calc(100zzh - 0px) is 50px, and the same pair with an
+       env() in the second is auto. */
+    @supports (height: 1dvh) {
+      #score:not(.gone):not(.over) .cardSlot {
+        width:min(84px, calc((100% - 30px) / 6),
+                  calc((100dvh - 228px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px)) * 49 / 73));
+      }
+    }
+    /* line-height:1 on the letter keeps this cell inside the tally's height -
+       at the default it was 14px taller and pushed the rows apart. */
+    #score:not(.gone):not(.over) #verdict {
+      grid-area:verdict; display:flex; flex-direction:column; align-items:center;
+      justify-content:center; gap:6px;
+    }
+    #score:not(.gone):not(.over) #grade { line-height:1; margin:0; }
+    #score:not(.gone):not(.over) #again { margin-top:4px; }
+  }
 </style>
 </head>
 <body>
@@ -453,7 +567,14 @@
 <div class="sheet" id="splash">
   <img id="titleArt" src="art/title.jpg" alt="Slumpd's Storage Sprint" draggable="false">
   <h1>SLUMPD'S<br>STORAGE SPRINT</h1>
-  <p class="tagline">Clear the unit. Grab every box and card. Something in the back is awake.</p>
+  <p class="tagline">Clear the unit by grabbing every box and card.
+    <span class="flipHint">
+      <svg class="flipIcon" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+        <g class="flipPhone"><rect x="13" y="7" width="14" height="26" rx="3"/><path d="M18 29.5h4"/></g>
+        <path class="flipArrow" d="M11.25 4.84A17.5 17.5 0 0 1 35.16 11.25M36.03 6.33 35.16 11.25 30.46 9.54"/>
+      </svg>
+      <span>You can even flip it sideways!</span>
+    </span></p>
   <p style="color:#e0913c">tap to start</p>
 </div>
 
@@ -469,8 +590,10 @@
   <div class="row" id="rTime"><span>time bonus</span><span></span></div>
   <div class="row" id="rClean"><span>no-hit bonus</span><span></span></div>
   <div class="row total" id="rTotal"><span>TOTAL</span><span></span></div>
-  <div id="grade">—</div>
-  <button id="again">RUN IT BACK</button>
+  <div id="verdict">
+    <div id="grade">—</div>
+    <button id="again">RUN IT BACK</button>
+  </div>
 </div>
 
 <script>
@@ -3474,14 +3597,24 @@ function setRow(el, label, val) { el.children[0].textContent = label; el.childre
 function showScore() {
   const s = computeScore();
   state = 'score'; tally = 0;
+  // The sheet's own classes and the letter are reset BEFORE it is shown, and
+  // the order is the fix. showPad() below measures the pad, which forces a
+  // style recalc, and a sheet un-hidden first was - for that recalc - still
+  // the last run's GAME OVER: .clip had the paused clip at .3, so it faded
+  // out over 0.2s behind a finished run. And #grade kept 'GAME OVER' and
+  // .over until the letter's own timer, invisible but LAID OUT, 285px wide at
+  // 44px - which on a phone held sideways widened the grid's second column
+  // and slid every tally row 28px left until the letter landed.
+  sheetScore.classList.toggle('over', crushed);
+  sheetScore.classList.remove('clip');
+  gradeEl.textContent = '\u2014';
+  gradeEl.classList.remove('over');
   sheetScore.classList.remove('gone');
   for (const k in rowEls) rowEls[k].classList.remove('in');
   cardSlots.forEach(function(el){ el.classList.remove('got'); });
   gradeEl.classList.remove('in'); againEl.classList.remove('in');
   showPad(false);                   // RUN IT BACK is where the d-pad is
   stopLoser();                      // a finished run after a crushed one
-  sheetScore.classList.toggle('over', crushed);
-  sheetScore.classList.remove('clip');
 
   // Crushed: no tally at all. Nothing was collected that counts, so there is
   // nothing to count up - GAME OVER, the button, and the clip if it is there.
